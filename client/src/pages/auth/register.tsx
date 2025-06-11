@@ -1,12 +1,83 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useStripe, Elements, PaymentElement, useElements } from '@stripe/react-stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+
+// Initialize Stripe
+const stripePromise = import.meta.env.VITE_STRIPE_PUBLIC_KEY 
+  ? loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY)
+  : null;
+
+const PaymentForm = ({ 
+  planType, 
+  setupIntentId, 
+  onSuccess 
+}: { 
+  planType: string; 
+  setupIntentId: string;
+  onSuccess: () => void;
+}) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    if (!stripe || !elements) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Confirm the setup intent
+      const { error: setupError } = await stripe.confirmSetup({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/register?step=account&plan=${planType}`,
+        },
+      });
+
+      if (setupError) {
+        throw new Error(setupError.message);
+      }
+
+      toast({
+        title: "Payment Successful!",
+        description: "Your payment method has been saved. Please complete your account registration.",
+        variant: "default",
+      });
+
+      onSuccess();
+    } catch (error: any) {
+      toast({
+        title: "Payment Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <PaymentElement />
+      <Button type="submit" disabled={!stripe || loading} className="w-full">
+        {loading ? "Processing..." : `Continue to Create Account`}
+      </Button>
+    </form>
+  );
+};
 
 export default function Register() {
   const [formData, setFormData] = useState({
@@ -16,6 +87,9 @@ export default function Register() {
     plan: "starter"
   });
   const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<'payment' | 'account'>('payment');
+  const [clientSecret, setClientSecret] = useState("");
+  const [setupIntentId, setSetupIntentId] = useState("");
   const { register } = useAuth();
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
@@ -24,10 +98,49 @@ export default function Register() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const planParam = urlParams.get("plan");
+    const stepParam = urlParams.get("step");
+    
     if (planParam) {
       setFormData(prev => ({ ...prev, plan: planParam }));
     }
+    if (stepParam === 'account') {
+      setStep('account');
+    }
   }, []);
+
+  // Create setup intent for payment
+  useEffect(() => {
+    if (step === 'payment' && formData.plan !== 'starter') {
+      const createSetupIntent = async () => {
+        try {
+          const response = await fetch("/api/create-setup-intent", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ planType: formData.plan }),
+          });
+
+          const data = await response.json();
+          
+          if (!response.ok) {
+            throw new Error(data.message);
+          }
+
+          setClientSecret(data.clientSecret);
+          setSetupIntentId(data.setupIntentId);
+        } catch (error: any) {
+          toast({
+            title: "Error",
+            description: error.message || "Failed to setup payment",
+            variant: "destructive",
+          });
+        }
+      };
+
+      createSetupIntent();
+    }
+  }, [step, formData.plan]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,16 +149,12 @@ export default function Register() {
     try {
       await register(formData.email, formData.password, formData.username, formData.plan);
       
-      if (formData.plan !== "starter") {
-        setLocation(`/subscribe?plan=${formData.plan}`);
-      } else {
-        setLocation("/dashboard");
-      }
-      
       toast({
         title: "Account created!",
         description: "Welcome to CryptoPilot AI. Your account has been created successfully.",
       });
+
+      setLocation("/dashboard");
     } catch (error: any) {
       toast({
         title: "Registration failed",
@@ -57,20 +166,64 @@ export default function Register() {
     }
   };
 
+  const planDetails = {
+    starter: { name: "Starter", price: "Free" },
+    pro: { name: "Pro", price: "$29/month" },
+    enterprise: { name: "Enterprise", price: "$99/month" }
+  };
+
+  const currentPlan = planDetails[formData.plan as keyof typeof planDetails] || planDetails.starter;
+
+  if (step === 'payment' && formData.plan !== 'starter') {
+    return (
+      <div className="min-h-screen flex items-center justify-center py-12">
+        <div className="max-w-md w-full space-y-8 p-8">
+          <Card className="bg-surface/50 backdrop-blur-xl border-slate-700">
+            <CardHeader className="text-center">
+              <CardTitle className="text-3xl font-bold">Complete Your Payment</CardTitle>
+              <p className="text-muted-foreground mt-2">
+                {currentPlan.name} Plan - {currentPlan.price}
+              </p>
+            </CardHeader>
+            
+            <CardContent>
+              {!stripePromise || !clientSecret ? (
+                <div className="text-center p-8">
+                  <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+                  <p className="text-muted-foreground">Setting up payment...</p>
+                </div>
+              ) : (
+                <Elements stripe={stripePromise} options={{ clientSecret }}>
+                  <PaymentForm 
+                    planType={formData.plan} 
+                    setupIntentId={setupIntentId}
+                    onSuccess={() => setStep('account')}
+                  />
+                </Elements>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center py-12">
       <div className="max-w-md w-full space-y-8 p-8">
         <Card className="bg-surface/50 backdrop-blur-xl border-slate-700">
           <CardHeader className="text-center">
-            <CardTitle className="text-3xl font-bold">Create Account</CardTitle>
-            <p className="text-muted-foreground mt-2">Start your AI trading journey</p>
+            <CardTitle className="text-3xl font-bold">Create Your Account</CardTitle>
+            <p className="text-muted-foreground mt-2">
+              {currentPlan.name} Plan - {currentPlan.price}
+            </p>
           </CardHeader>
           
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <Label htmlFor="username" className="text-sm font-medium text-muted-foreground">
-                  Full Name
+                  Username
                 </Label>
                 <Input
                   id="username"
@@ -110,37 +263,10 @@ export default function Register() {
                 />
               </div>
               
-              <div>
-                <Label htmlFor="plan" className="text-sm font-medium text-muted-foreground">
-                  Select Plan
-                </Label>
-                <Select value={formData.plan} onValueChange={(value) => setFormData(prev => ({ ...prev, plan: value }))}>
-                  <SelectTrigger className="mt-2 bg-white dark:bg-slate-800 text-black dark:text-white border-slate-300 dark:border-slate-600 focus:border-primary">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="starter">Starter (Free)</SelectItem>
-                    <SelectItem value="pro">Pro ($29/month)</SelectItem>
-                    <SelectItem value="enterprise">Enterprise ($99/month)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
               <Button type="submit" disabled={loading} className="w-full py-3 font-semibold">
                 {loading ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
-            
-            <div className="mt-6 text-center">
-              <p className="text-muted-foreground">
-                Already have an account?{" "}
-                <Link href="/login">
-                  <span className="text-primary hover:text-blue-400 cursor-pointer">
-                    Sign in
-                  </span>
-                </Link>
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>

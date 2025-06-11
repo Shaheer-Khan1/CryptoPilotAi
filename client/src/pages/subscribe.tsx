@@ -13,12 +13,13 @@ const stripePromise = import.meta.env.VITE_STRIPE_PUBLIC_KEY
   ? loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY)
   : null;
 
-const SubscribeForm = ({ planType }: { planType: string }) => {
+const SubscribeForm = ({ planType, setupIntentId }: { planType: string; setupIntentId: string }) => {
   const stripe = useStripe();
   const elements = useElements();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [, setLocation] = useLocation();
+  const { currentUser } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,28 +30,54 @@ const SubscribeForm = ({ planType }: { planType: string }) => {
       return;
     }
 
-    const { error } = await stripe.confirmPayment({
+    try {
+      // Confirm the setup intent
+      const { error: setupError } = await stripe.confirmSetup({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/dashboard`,
       },
     });
 
-    if (error) {
+      if (setupError) {
+        throw new Error(setupError.message);
+      }
+
+      // If setup is successful, confirm the subscription
+      const token = await currentUser?.getIdToken();
+      const response = await fetch("/api/confirm-subscription", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ 
+          setupIntentId,
+          planType 
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message);
+      }
+
+      toast({
+        title: "Subscription Created",
+        description: "Your subscription has been created successfully!",
+      });
+      
+      setLocation("/dashboard");
+    } catch (error: any) {
       toast({
         title: "Payment Failed",
         description: error.message,
         variant: "destructive",
       });
-    } else {
-      toast({
-        title: "Payment Successful",
-        description: "You are now subscribed!",
-      });
-      setLocation("/dashboard");
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (
@@ -65,6 +92,7 @@ const SubscribeForm = ({ planType }: { planType: string }) => {
 
 export default function Subscribe() {
   const [clientSecret, setClientSecret] = useState("");
+  const [setupIntentId, setSetupIntentId] = useState("");
   const [planType, setPlanType] = useState("pro");
   const { currentUser } = useAuth();
   const { toast } = useToast();
@@ -77,7 +105,7 @@ export default function Subscribe() {
       setPlanType(planParam);
     }
 
-    // Create subscription
+    // Create subscription setup
     const createSubscription = async () => {
       if (!currentUser) return;
 
@@ -98,7 +126,18 @@ export default function Subscribe() {
           throw new Error(data.message);
         }
 
+        // For free plan, redirect to dashboard
+        if (data.clientSecret === null) {
+          toast({
+            title: "Subscription Created",
+            description: "Your free subscription has been created!",
+          });
+          setLocation("/dashboard");
+          return;
+        }
+
         setClientSecret(data.clientSecret);
+        setSetupIntentId(data.setupIntentId);
       } catch (error: any) {
         toast({
           title: "Error",
@@ -143,7 +182,7 @@ export default function Subscribe() {
               </div>
             ) : (
               <Elements stripe={stripePromise} options={{ clientSecret }}>
-                <SubscribeForm planType={planType} />
+                <SubscribeForm planType={planType} setupIntentId={setupIntentId} />
               </Elements>
             )}
           </CardContent>

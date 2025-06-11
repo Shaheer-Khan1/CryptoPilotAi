@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, Bot } from "lucide-react";
+import { LogOut } from "lucide-react";
 
 export function Navbar() {
   const [location, setLocation] = useLocation();
@@ -22,27 +22,20 @@ export function Navbar() {
   ];
 
   return (
-    <nav className="bg-background/80 backdrop-blur-xl border-b border-border sticky top-0 z-50">
+    <nav className="bg-white backdrop-blur-xl border-b border-border sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link href="/">
-            <div className="flex items-center space-x-3 cursor-pointer">
-              <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                <Bot className="text-white h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="text-lg brand-text">
-                  <span className="brand-black">CRYPTOPILOT</span>{" "}
-                  <span className="brand-orange">AI</span>
-                </h1>
-                <p className="text-xs brand-orange font-semibold">CRYPTO ON AUTOPILOT</p>
+            <div className="flex items-center cursor-pointer">
+              <div className="w-60 h-16 rounded-lg overflow-hidden flex items-center justify-center bg-white">
+                <img src="/image.png" alt="CryptoPilot AI" className="w-full h-full object-contain" />
               </div>
             </div>
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-8">
+          <div className="hidden md:flex items-center space-x-8 absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
             {navigation.map((item) => (
               <Link key={item.name} href={item.href}>
                 <button

@@ -13,10 +13,12 @@ export function DashboardHeader() {
   const { userData } = useAuth();
 
   return (
-    <header className="h-16 border-b border-border bg-background/80 backdrop-blur-xl sticky top-0 z-40">
+    <header className="h-16 border-b border-border bg-white backdrop-blur-xl sticky top-0 z-40">
       <div className="h-full px-8 flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-semibold text-foreground">CryptoPilot AI</h1>
+          <div className="w-48 h-14 rounded-lg overflow-hidden flex items-center justify-center bg-white">
+            <img src="/image.png" alt="CryptoPilot AI" className="w-full h-full object-contain" />
+          </div>
         </div>
 
         <div className="flex items-center space-x-4">

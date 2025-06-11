@@ -8,9 +8,16 @@ let stripe: Stripe | null = null;
 
 if (process.env.STRIPE_SECRET_KEY) {
   stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-    apiVersion: "2023-10-16",
+    apiVersion: "2025-05-28.basil",
   });
 }
+
+// Define Stripe price IDs
+const STRIPE_PRICE_IDS = {
+  starter: 'price_starter', // You'll need to replace these with your actual Stripe price IDs
+  pro: 'price_pro',
+  enterprise: 'price_enterprise'
+};
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
@@ -72,135 +79,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create or get subscription
-  app.post('/api/create-subscription', async (req, res) => {
+  // Create setup intent for payment
+  app.post("/api/create-setup-intent", async (req, res) => {
     if (!stripe) {
-      return res.status(500).json({ message: "Stripe not configured. Please add STRIPE_SECRET_KEY." });
-    }
-
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    let firebaseUid;
-    
-    try {
-      // Try to parse JWT token
-      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-      firebaseUid = payload.user_id || payload.sub;
-    } catch (error) {
-      // Fallback to using token as UID directly
-      firebaseUid = token;
-    }
-
-    if (!firebaseUid) {
-      return res.status(401).json({ message: "Invalid token" });
+      return res.status(500).json({ message: "Stripe not configured" });
     }
 
     try {
-      let user = await storage.getUserByFirebaseUid(firebaseUid);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
       const { planType } = req.body;
+      console.log("Creating setup intent for plan:", planType);
 
-      // If user already has a subscription, retrieve it
-      if (user.stripeSubscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
-        const invoice = await stripe.invoices.retrieve(subscription.latest_invoice as string, {
-          expand: ['payment_intent']
-        });
+      // Create a setup intent
+      const setupIntent = await stripe.setupIntents.create({
+        payment_method_types: ['card'],
+        usage: 'off_session',
+      });
 
-        return res.json({
-          subscriptionId: subscription.id,
-          clientSecret: (invoice.payment_intent as any)?.client_secret,
-        });
+      console.log("Setup intent created:", setupIntent.id);
+
+      res.json({
+        clientSecret: setupIntent.client_secret,
+        setupIntentId: setupIntent.id
+      });
+    } catch (error: any) {
+      console.error("Setup intent creation error:", error);
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Create subscription
+  app.post("/api/create-subscription", async (req, res) => {
+    if (!stripe) {
+      return res.status(500).json({ message: "Stripe not configured" });
+    }
+
+    try {
+      const { planType, setupIntentId } = req.body;
+      console.log("Subscription request body:", req.body);
+      console.log("Plan type:", planType);
+      console.log("Setup intent ID:", setupIntentId);
+
+      // Get the setup intent to verify payment method
+      const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
+      if (!setupIntent.payment_method) {
+        throw new Error("No payment method attached to setup intent");
       }
 
-      // Create Stripe customer if doesn't exist
-      let customerId = user.stripeCustomerId;
-      if (!customerId) {
-        const customer = await stripe.customers.create({
-          email: user.email,
-          name: user.username,
-        });
-        customerId = customer.id;
-      }
-
-      // Create or get price based on plan
-      let priceId;
-      
-      if (planType === 'basic') {
-        const product = await stripe.products.create({
-          name: 'CryptoPilot AI Basic',
-          description: 'Essential cryptocurrency analysis features',
-        });
-        
-        const price = await stripe.prices.create({
-          unit_amount: 2900, // $29.00
-          currency: 'usd',
-          recurring: { interval: 'month' },
-          product: product.id,
-        });
-        priceId = price.id;
-        
-      } else if (planType === 'professional') {
-        const product = await stripe.products.create({
-          name: 'CryptoPilot AI Professional',
-          description: 'Advanced AI analysis and trading insights',
-        });
-        
-        const price = await stripe.prices.create({
-          unit_amount: 7900, // $79.00
-          currency: 'usd',
-          recurring: { interval: 'month' },
-          product: product.id,
-        });
-        priceId = price.id;
-        
-      } else if (planType === 'enterprise') {
-        const product = await stripe.products.create({
-          name: 'CryptoPilot AI Enterprise',
-          description: 'Complete suite with unlimited features and priority support',
-        });
-        
-        const price = await stripe.prices.create({
-          unit_amount: 19900, // $199.00
-          currency: 'usd',
-          recurring: { interval: 'month' },
-          product: product.id,
-        });
-        priceId = price.id;
-        
-      } else {
-        return res.status(400).json({ message: "Invalid plan type. Must be basic, professional, or enterprise." });
-      }
-
-      // Create subscription
+      // Create the subscription
       const subscription = await stripe.subscriptions.create({
-        customer: customerId,
-        items: [{
-          price: priceId,
-        }],
+        customer: setupIntent.customer as string,
+        items: [{ price: STRIPE_PRICE_IDS[planType as keyof typeof STRIPE_PRICE_IDS] }],
         payment_behavior: 'default_incomplete',
         payment_settings: { save_default_payment_method: 'on_subscription' },
         expand: ['latest_invoice.payment_intent'],
       });
 
-      // Update user with Stripe info
-      user = await storage.updateUserStripeInfo(user.id, customerId, subscription.id);
-      await storage.updateUserPlan(user.id, planType);
+      console.log("Subscription created:", subscription.id);
 
-      const invoice = subscription.latest_invoice as any;
       res.json({
         subscriptionId: subscription.id,
-        clientSecret: invoice.payment_intent.client_secret,
+        clientSecret: (subscription.latest_invoice as any).payment_intent?.client_secret,
       });
     } catch (error: any) {
-      res.status(400).json({ message: "Error creating subscription: " + error.message });
+      console.error("Stripe subscription creation error:", error);
+      res.status(400).json({ message: error.message });
     }
   });
 
