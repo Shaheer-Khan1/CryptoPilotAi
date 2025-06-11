@@ -1,0 +1,116 @@
+CryptoPilot AI - Developer Instruction Document
+App Name: CryptoPilot AI
+Tagline: All-in-One AI Assistant for Crypto Traders, Investors & Content Creators
+OVERVIEW
+CryptoPilot AI is a fully automated, AI-powered crypto super app. It combines five high-income modules
+into a single platform. The app leverages free APIs and advanced AI to run entirely hands-free after
+launch.
+This document explains how to build all five modules into one seamless web application, step by
+step, and provides detailed developer instructions.
+FULL APPLICATION STRUCTURE
+Modules (Components)
+Each feature is implemented as a modular service within the same codebase:
+1. Market Summary Feed
+2. Altcoin Screener & Signals
+3. Portfolio Analyzer
+4. AI Chatbot Builder
+5. Shorts Content Generator
+All modules are controlled via a central dashboard with dynamic routing. A single Firebase backend
+handles user authentication, Firestore for data, and Stripe for subscription control.
+⚙️ STACK OVERVIEW
+● Frontend: React + TailwindCSS + React Router
+● Backend: Firebase (Auth, Firestore, Functions, Hosting)
+● Automation: Firebase Scheduled Functions + Make.com for non-code automations
+● Database: Firestore (NoSQL)
+● APIs:
+● CoinGecko (token data)
+● CryptoPanic (news)
+● WalletConnect (portfolio connect)
+● Gemini API (AI text generation)
+● Pictory/Lumen5 API (video generation)
+● Billing: Stripe Subscriptions
+● Deployment: Vercel for frontend, Railway or Firebase Hosting for backend
+MODULE IMPLEMENTATION GUIDE
+1. Market Summary Feed
+● Endpoint: /market-summary
+● Data Source: CryptoPanic + CoinGecko
+● Steps:
+1. Fetch latest news and price data every 6 hours (Cloud Function)
+
+2. Summarize using Gemini API
+3. Store summary to Firestore → Display on frontend feed
+4. Optional: Send daily digest to subscribers via Make.com
+
+2. Altcoin Screener & Signal Engine
+● Endpoint: /signals
+● Data Source: CoinGecko trending + low market cap tokens
+● Steps:
+1. Fetch 1000+ token data daily
+2. Use Gemini to create top 5 ranked coins with summaries
+3. Store results with timestamp, score, summary
+4. Display to users based on plan (free/premium)
+
+3. Portfolio Analyzer
+● Endpoint: /portfolio
+● Tools: WalletConnect SDK, CoinGecko
+● Steps:
+1. User connects wallet via WalletConnect
+2. Use CoinGecko to value assets
+3. Gemini creates rebalancing advice
+4. Save report as PDF (use pdf-lib or Puppeteer)
+5. Email or allow download (cron job monthly)
+
+4. AI Project Chatbot Builder
+● Endpoint: /ai-bot-builder
+● Tools: File upload or link parser → Gemini
+● Steps:
+1. User uploads whitepaper/link
+2. Gemini summarizes and builds an AI chat context
+3. Deploy to Telegram/Discord via bot API (or provide embed code)
+4. Track bots via Firestore
+
+5. Shorts Generator
+● Endpoint: /shorts
+● Data Source: CryptoPanic
+● Steps:
+1. Fetch top 3 headlines daily
+2. Gemini creates viral script
+3. Auto-submit script to Pictory or Lumen5
+4. Auto-upload to YouTube Shorts (YouTube API)
+5. Store video links in Firestore for users
+
+USER ACCOUNTS & BILLING
+● Use Firebase Auth for sign up/login (Google & email)
+
+● Use Stripe Billing with 2 tiers:
+● Free Tier
+● Market Feed (Last 24H only)
+● 1 Altcoin Signal per Day
+● 1 Portfolio Scan
+● Access to AI Bot Builder (1 bot, no deploy)
+
+● CryptoPilot Pro – $69/month or $499/year
+● Full Market Feed with Daily Digests
+● Unlimited Altcoin Signals + AI-ranked coins
+● Weekly Portfolio Analysis with Downloadable Reports
+● Unlimited Bot Builders (with Telegram/Discord Deployment)
+● Early access to future features (e.g., NFT screener, DEX automation)
+
+ADMIN PANEL FEATURES
+● View all users, their plan and usage
+● Manually edit content summaries if needed
+● Track content generation logs (e.g. 5 videos today)
+● Flag broken bot deployments or API issues
+● Generate CSV/Excel exports of user activity by plan tier
+● Admin override of user plan (upgrade/downgrade or suspend)
+DEPLOYMENT GUIDE
+1. Initialize Firebase project (Auth, Firestore, Storage, Functions)
+2. Deploy frontend to Vercel or Firebase Hosting
+3. Schedule all cron jobs via Firebase Scheduled Functions
+4. Link Mailchimp for email newsletter delivery
+5. Monitor with Sentry or Firebase Crashlytics
+
+● Add multilingual support
+● NFT Screener Module
+● AI-driven portfolio autotrading using DEX APIs
+● Launch mobile version (Flutter wrapper)
