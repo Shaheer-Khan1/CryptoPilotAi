@@ -16,6 +16,17 @@ export default defineConfig({
         ]
       : []),
   ],
+  define: {
+    global: 'globalThis',
+    'process.env': {},
+    'process.browser': true,
+    'process': {
+      'env': {},
+      'browser': true,
+      'version': '',
+      'versions': { node: '16.0.0' }
+    }
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
