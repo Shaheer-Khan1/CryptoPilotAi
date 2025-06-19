@@ -1,50 +1,157 @@
+import React, { useState, useEffect } from 'react';
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { TrendingUp, TrendingDown, AlertTriangle, Lock, Star } from "lucide-react";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { TrendingUp, TrendingDown, AlertTriangle, Lock, Star, RefreshCw, Loader2, Zap, AlertCircle } from "lucide-react";
+
+// API functions
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const signalsAPI = {
+  async generateSignals(token: string): Promise<any> {
+    const response = await fetch(`${API_BASE}/api/signals`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!response.ok) throw new Error('Failed to generate signals');
+    return response.json();
+  },
+};
+
+type Signal = {
+  symbol: string;
+  name: string;
+  prediction: string;
+  confidence: number;
+  targetPrice: string;
+  timeframe: string;
+  reasoning: string;
+  trend: "up" | "down" | "neutral";
+};
+
+// Signal Card Component
+const SignalCard: React.FC<{ signal: Signal }> = ({ signal }) => {
+  return (
+    <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className={`w-12 h-12 ${
+              signal.trend === 'up' ? 'bg-green-500' : 
+              signal.trend === 'down' ? 'bg-red-500' : 
+              'bg-yellow-500'
+            } rounded-full flex items-center justify-center`}>
+              <span className="text-white font-bold">{signal.symbol.split('/')[0]}</span>
+            </div>
+            <div>
+              <h3 className="text-xl font-semibold text-slate-900 dark:text-white">{signal.symbol}</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400">{signal.name}</p>
+              <div className="flex items-center space-x-2 mt-1">
+                <Badge 
+                  variant={signal.prediction.includes('Buy') ? 'default' : 
+                          signal.prediction.includes('Sell') ? 'destructive' : 
+                          'secondary'}
+                >
+                  {signal.prediction}
+                </Badge>
+                {signal.trend === 'up' && <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />}
+                {signal.trend === 'down' && <TrendingDown className="h-4 w-4 text-red-500" />}
+                {signal.trend === 'neutral' && <AlertTriangle className="h-4 w-4 text-yellow-500" />}
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-lg font-semibold text-slate-900 dark:text-white">{signal.targetPrice}</div>
+            <div className="text-sm text-slate-600 dark:text-slate-400">{signal.timeframe}</div>
+          </div>
+        </div>
+        
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-slate-600 dark:text-slate-400">Confidence Level</span>
+            <span className="text-sm font-semibold text-slate-900 dark:text-white">{signal.confidence}%</span>
+          </div>
+          <Progress value={signal.confidence} className="h-2" />
+        </div>
+        
+        <p className="text-slate-700 dark:text-slate-300 text-sm">{signal.reasoning}</p>
+      </CardContent>
+    </Card>
+  );
+};
 
 export default function Signals() {
   const { userData } = useAuth();
+  const [predictions, setPredictions] = useState<Signal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastGenerated, setLastGenerated] = useState<Date | null>(null);
+
   const isFreeTier = !userData?.plan || userData?.plan === "starter";
 
-  // Mock AI analysis data
-  const predictions = [
-    {
-      symbol: "BTC/USD",
-      prediction: "Strong Buy",
-      confidence: 92,
-      targetPrice: "$72,500",
-      timeframe: "7 days",
-      reasoning: "Technical indicators showing bullish momentum with RSI oversold recovery",
-      icon: "₿",
-      color: "bg-orange-500",
-      trend: "up"
-    },
-    {
-      symbol: "ETH/USD",
-      prediction: "Hold",
-      confidence: 67,
-      targetPrice: "$2,850",
-      timeframe: "5 days",
-      reasoning: "Consolidation phase expected before next major move",
-      icon: "Ξ",
-      color: "bg-blue-500",
-      trend: "neutral"
-    },
-    {
-      symbol: "ADA/USD",
-      prediction: "Weak Sell",
-      confidence: 78,
-      targetPrice: "$0.42",
-      timeframe: "10 days",
-      reasoning: "Breaking below key support levels with high volume",
-      icon: "₳",
-      color: "bg-blue-600",
-      trend: "down"
+  const fetchSignals = async () => {
+    if (!userData?.id) {
+      // Bypass for testing - remove this in production
+      console.log('🧪 TESTING MODE: Bypassing authentication');
+      setLoading(true);
+      setError(null);
+      
+      try {
+        console.log('🚀 Generating altcoin signals (TEST MODE)...');
+        const response = await signalsAPI.generateSignals('test-user-id');
+        
+        if (response.success) {
+          setPredictions(response.signals);
+          setLastGenerated(new Date());
+          console.log(`✅ Generated ${response.signals.length} signals for testing`);
+        } else {
+          setError(response.error || 'Failed to generate signals');
+        }
+      } catch (err) {
+        console.error('💥 Error generating signals:', err);
+        setError('Failed to generate signals. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+      return;
     }
-  ];
+
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('🚀 Generating altcoin signals...');
+      const response = await signalsAPI.generateSignals(userData.id.toString());
+      
+      if (response.success) {
+        setPredictions(response.signals);
+        setLastGenerated(new Date());
+        console.log(`✅ Generated ${response.signals.length} signals for ${response.userPlan} tier`);
+      } else {
+        setError(response.error || 'Failed to generate signals');
+      }
+    } catch (err) {
+      console.error('💥 Error generating signals:', err);
+      setError('Failed to generate signals. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateSignals = () => {
+    fetchSignals();
+  };
+
+  // Empty mock data - no sample signals
+  const mockPredictions: Signal[] = [];
+
+  const displayPredictions = predictions.length > 0 ? predictions : mockPredictions;
 
   return (
     <div>
@@ -63,78 +170,102 @@ export default function Signals() {
         )}
       </div>
 
-      {/* AI Predictions */}
-      <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-slate-900 dark:text-white">AI Trading Signals</CardTitle>
-          {!isFreeTier && (
-            <Button variant="outline" size="sm">
-              <Star className="mr-2 h-4 w-4" />
-              View All Signals
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-6">
-            {predictions.slice(0, isFreeTier ? 1 : predictions.length).map((prediction, index) => (
-              <div key={index} className="p-6 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-12 h-12 ${prediction.color} rounded-full flex items-center justify-center`}>
-                      <span className="text-white font-bold">{prediction.icon}</span>
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-semibold text-slate-900 dark:text-white">{prediction.symbol}</h3>
-                      <div className="flex items-center space-x-2 mt-1">
-                        <Badge 
-                          variant={prediction.prediction.includes('Buy') ? 'default' : 
-                                  prediction.prediction.includes('Sell') ? 'destructive' : 
-                                  'secondary'}
-                        >
-                          {prediction.prediction}
-                        </Badge>
-                        {prediction.trend === 'up' && <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />}
-                        {prediction.trend === 'down' && <TrendingDown className="h-4 w-4 text-red-500" />}
-                        {prediction.trend === 'neutral' && <AlertTriangle className="h-4 w-4 text-yellow-500" />}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-semibold text-slate-900 dark:text-white">{prediction.targetPrice}</div>
-                    <div className="text-sm text-slate-600 dark:text-slate-400">{prediction.timeframe}</div>
-                  </div>
-                </div>
-                
-                <div className="mb-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Confidence Level</span>
-                    <span className="text-sm font-semibold text-slate-900 dark:text-white">{prediction.confidence}%</span>
-                  </div>
-                  <Progress value={prediction.confidence} className="h-2" />
-                </div>
-                
-                <p className="text-slate-700 dark:text-slate-300 text-sm">{prediction.reasoning}</p>
-              </div>
-            ))}
-            
-            {isFreeTier && predictions.length > 1 && (
-              <div className="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-center">
-                <Lock className="mx-auto h-12 w-12 text-amber-600 mb-4" />
-                <h3 className="text-lg font-semibold text-amber-800 dark:text-amber-200 mb-2">
-                  {predictions.length - 1} More Signals Available
-                </h3>
-                <p className="text-amber-700 dark:text-amber-300 mb-4">
-                  Upgrade to Pro to access all AI-ranked trading signals with detailed analysis.
-                </p>
-                <Button>
-                  <Star className="mr-2 h-4 w-4" />
-                  Upgrade to Pro
-                </Button>
-              </div>
-            )}
+      <div className="flex flex-col space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Altcoin Signals
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              AI-powered cryptocurrency trading signals and analysis
+            </p>
           </div>
-        </CardContent>
-      </Card>
+          <Button
+            onClick={handleGenerateSignals}
+            disabled={loading}
+            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Zap className="mr-2 h-4 w-4" />
+                Generate Signals
+              </>
+            )}
+          </Button>
+        </div>
+
+        {/* Testing Mode Indicator */}
+        {!userData?.id && (
+          <Alert className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20">
+            <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+            <AlertTitle>Testing Mode</AlertTitle>
+            <AlertDescription>
+              You're in testing mode. Signals will be generated without authentication. 
+              <span className="font-semibold"> Remove this bypass in production!</span>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Last Generated Info */}
+        {lastGenerated && (
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            Last generated: {lastGenerated.toLocaleString()}
+          </div>
+        )}
+
+        {/* Signals Display */}
+        {displayPredictions.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {displayPredictions.map((signal, index) => (
+              <SignalCard key={index} signal={signal} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <div className="mx-auto w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
+              <Zap className="w-8 h-8 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+              No Signals Generated
+            </h3>
+            <p className="text-gray-500 dark:text-gray-400 mb-4">
+              Click "Generate Signals" to get AI-powered cryptocurrency trading signals
+            </p>
+            <Button
+              onClick={handleGenerateSignals}
+              disabled={loading}
+              variant="outline"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Zap className="mr-2 h-4 w-4" />
+                  Generate Signals
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 } 

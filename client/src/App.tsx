@@ -21,7 +21,6 @@ import Subscribe from "@/pages/subscribe";
 import DashboardOverview from "@/pages/dashboard/overview";
 import Portfolio from "@/pages/dashboard/portfolio";
 import Analysis from "@/pages/dashboard/analysis";
-import Trading from "@/pages/dashboard/trading";
 import ChatbotBuilder from "@/pages/dashboard/chatbot-builder";
 import ShortsGenerator from "@/pages/dashboard/shorts-generator";
 import Admin from "@/pages/dashboard/admin";

@@ -49,8 +49,10 @@
     "input-otp": "^1.4.2",
     "jspdf": "^3.0.1",
     "lucide-react": "^0.453.0",
+    "mammoth": "^1.9.1",
     "moralis": "^2.27.2",
     "next-themes": "^0.4.6",
+    "pdfjs-dist": "^5.3.31",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
@@ -67,6 +69,7 @@
   },
   "devDependencies": {
     "@types/node": "20.16.11",
+    "@types/pdfjs-dist": "^2.10.377",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",
