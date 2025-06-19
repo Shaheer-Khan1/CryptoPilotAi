@@ -28,6 +28,7 @@ import Billing from "@/pages/dashboard/billing";
 import Settings from "@/pages/dashboard/settings";
 import NotFound from "@/pages/not-found";
 import Signals from "@/pages/dashboard/signals";
+import YouTubeCallback from "@/pages/auth/YouTubeCallback";
 
 function DashboardLayout() {
   const [, setLocation] = useLocation();
@@ -84,6 +85,7 @@ function Router() {
             <Subscribe />
           </ProtectedRoute>
         </Route>
+        <Route path="/auth/youtube/callback" component={YouTubeCallback} />
         <Route path="/dashboard" nest>
           <ProtectedRoute>
             <DashboardLayout />

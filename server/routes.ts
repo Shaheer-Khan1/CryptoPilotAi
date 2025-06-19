@@ -4,6 +4,14 @@ import { storage } from "./storage";
 import { insertUserSchema, users, chatSessions, type User } from "@shared/schema";
 import Stripe from "stripe";
 import { CryptoPanicService, GeminiService, YouTubeService, VideoGenerationService } from './shorts-pipeline';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { google } from 'googleapis';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let stripe: Stripe | null = null;
 
@@ -19,6 +27,12 @@ const STRIPE_PRICE_IDS = {
   pro: 'price_pro',
   enterprise: 'price_enterprise'
 };
+
+// Multer setup for video uploads
+const upload = multer({ dest: path.join(__dirname, '../uploads/') });
+
+// In-memory token store for demo
+const youtubeTokenStore: Record<string, any> = {};
 
 // Helper function to get or create test user
 async function getOrCreateTestUser(): Promise<User> {
@@ -1453,14 +1467,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload to YouTube (simulated)
-  app.post('/api/shorts/upload-youtube', async (req, res) => {
+  // OAuth2 callback endpoint
+  app.post('/api/auth/youtube/callback', async (req, res) => {
+    const { code, state } = req.body;
+    if (!code || !state) return res.status(400).json({ error: 'Missing code or state' });
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.YOUTUBE_REDIRECT_URI
+    );
     try {
-      // In production, pass OAuth2 accessToken as needed
-      const upload = await youtube.uploadVideo(req.body, null);
-      res.json(upload);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+      const { tokens } = await oauth2Client.getToken(code);
+      youtubeTokenStore[state] = tokens; // For demo, keyed by state
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update getUserYouTubeTokens to use state (for demo, use a fixed state or get from request)
+  async function getUserYouTubeTokens(userIdOrState: string) {
+    // TODO: Use real userId in production
+    const tokens = youtubeTokenStore[userIdOrState];
+    if (!tokens) throw new Error('YouTube account not connected. Please connect your YouTube account first.');
+    return tokens;
+  }
+
+  // Real YouTube upload endpoint
+  app.post('/api/shorts/upload-youtube', upload.single('video'), async (req, res) => {
+    try {
+      const { title, description, hashtags, videoId, state } = req.body;
+      const videoFile = req.file;
+      if (!videoFile) {
+        return res.status(400).json({ error: 'No video file uploaded.' });
+      }
+      const userState = state || 'test-user-id';
+      let tokens;
+      try {
+        tokens = await getUserYouTubeTokens(userState);
+      } catch (err: any) {
+        fs.unlinkSync(videoFile.path);
+        return res.status(401).json({ error: err.message });
+      }
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.YOUTUBE_REDIRECT_URI
+      );
+      oauth2Client.setCredentials(tokens);
+      // Check if token needs refresh
+      if (tokens.expiry_date && tokens.expiry_date < Date.now()) {
+        try {
+          const { credentials } = await oauth2Client.refreshAccessToken();
+          youtubeTokenStore[userState] = credentials;
+          oauth2Client.setCredentials(credentials);
+        } catch (refreshError) {
+          fs.unlinkSync(videoFile.path);
+          return res.status(401).json({ error: 'Token expired and refresh failed. Please reconnect your YouTube account.' });
+        }
+      }
+      const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+      const response = await youtube.videos.insert({
+        part: ['snippet', 'status'],
+        requestBody: {
+          snippet: {
+            title: title || 'Untitled',
+            description: description || '',
+            tags: hashtags ? JSON.parse(hashtags) : [],
+          },
+          status: {
+            privacyStatus: 'public',
+          },
+        },
+        media: {
+          body: fs.createReadStream(videoFile.path),
+        },
+      });
+      // Clean up uploaded file
+      fs.unlinkSync(videoFile.path);
+      const videoUrl = `https://youtube.com/watch?v=${response.data.id}`;
+      res.json({
+        url: videoUrl,
+        status: 'uploaded',
+        title: title,
+        videoId: response.data.id,
+      });
+    } catch (error: any) {
+      if (req.file) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+      res.status(500).json({ error: error.message || 'Failed to upload video to YouTube' });
+    }
+  });
+
+  // YouTube connection status endpoint (for demo, use a fixed state or query param)
+  app.get('/api/auth/youtube/status', (req, res) => {
+    // In production, use user ID from session/auth
+    const state = req.query.state as string || 'test-user-id';
+    const connected = !!youtubeTokenStore[state];
+    res.json({ connected });
+  });
+
+  // GET callback for Google redirect (optional, for direct Google redirects)
+  app.get('/auth/youtube/callback', async (req, res) => {
+    const code = req.query.code as string;
+    const state = req.query.state as string;
+    if (!code || !state) return res.status(400).send('Missing code or state parameter');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.YOUTUBE_REDIRECT_URI
+    );
+    try {
+      const { tokens } = await oauth2Client.getToken(code);
+      youtubeTokenStore[state] = tokens;
+      res.redirect('/dashboard/shorts-generator?youtube_connected=true');
+    } catch (err: any) {
+      res.redirect('/dashboard/shorts-generator?youtube_error=true');
     }
   });
 

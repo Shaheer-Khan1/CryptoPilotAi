@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -99,9 +99,43 @@ export default function ShortsGeneratorPipeline() {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [pipelineStep, setPipelineStep] = useState(1);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isYouTubeConnected, setIsYouTubeConnected] = useState(false); // For demo, set to true after OAuth
 
   // Load news on component mount
   useEffect(() => {
+    // Check if YouTube is connected
+    const checkYouTubeConnection = async () => {
+      const state = sessionStorage.getItem('youtube_oauth_state');
+      const connected = sessionStorage.getItem('youtube_connected');
+      if (connected === 'true' && state) {
+        try {
+          const response = await fetch(`/api/auth/youtube/status?state=${state}`);
+          const data = await response.json();
+          setIsYouTubeConnected(data.connected);
+        } catch (error) {
+          setIsYouTubeConnected(false);
+        }
+      }
+    };
+    // Check URL params for connection status
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('youtube_connected') === 'true') {
+      setIsYouTubeConnected(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (urlParams.get('youtube_error')) {
+      const error = urlParams.get('youtube_error');
+      setIsYouTubeConnected(false);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      if (error === 'invalid_state') {
+        alert('YouTube connection failed due to security validation. Please try again.');
+      } else {
+        alert('Failed to connect YouTube account. Please try again.');
+      }
+    }
+    checkYouTubeConnection();
     fetchNews();
   }, []);
 
@@ -147,13 +181,13 @@ export default function ShortsGeneratorPipeline() {
     try {
       const newVideo = await shortsAPI.createVideo(script);
       const videoItem: VideoItem = {
-        id: Date.now(),
-        scriptId: script.id,
-        title: script.title,
+      id: Date.now(),
+      scriptId: script.id,
+      title: script.title,
         status: newVideo.status,
         videoUrl: newVideo.videoUrl ?? null,
         url: newVideo.url,
-        createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString()
       };
       setVideos(prev => [...prev, videoItem]);
     } catch (error) {
@@ -163,20 +197,70 @@ export default function ShortsGeneratorPipeline() {
     }
   };
 
+  // New: handle file selection
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setVideoFile(e.target.files[0]);
+    }
+  };
+
+  // New: upload video file to YouTube
   const uploadToYouTube = async (video: VideoItem) => {
+    if (!videoFile) {
+      alert('Please select a video file to upload.');
+      return;
+    }
+    if (!isYouTubeConnected) {
+      alert('Please connect your YouTube account first.');
+      return;
+    }
     setLoading(prev => ({ ...prev, [`upload_${video.id}`]: true }));
     setPipelineStep(4);
+    setUploadProgress(0);
     try {
-      const uploadResult = await shortsAPI.uploadVideo(video);
-      setVideos(prev => prev.map(v => 
-        v.id === video.id 
-          ? { ...v, ...uploadResult, status: 'uploaded' }
-          : v
-      ));
+      const formData = new FormData();
+      formData.append('video', videoFile);
+      formData.append('title', video.title);
+      formData.append('description', video.title);
+      formData.append('hashtags', JSON.stringify([]));
+      formData.append('videoId', video.id.toString());
+      formData.append('state', sessionStorage.getItem('youtube_oauth_state') || '');
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/shorts/upload-youtube', true);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          setUploadProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      };
+      xhr.onload = () => {
+        setLoading(prev => ({ ...prev, [`upload_${video.id}`]: false }));
+        if (xhr.status === 200) {
+          const uploadResult = JSON.parse(xhr.responseText);
+          setVideos(prev => prev.map(v =>
+            v.id === video.id
+              ? { ...v, ...uploadResult, status: 'uploaded' }
+              : v
+          ));
+          setVideoFile(null);
+          setUploadProgress(0);
+          alert('Video uploaded successfully to YouTube!');
+        } else if (xhr.status === 401) {
+          alert('YouTube authentication expired. Please reconnect your account.');
+          setIsYouTubeConnected(false);
+          sessionStorage.removeItem('youtube_connected');
+        } else {
+          const error = JSON.parse(xhr.responseText);
+          alert(`Failed to upload video: ${error.error || 'Unknown error'}`);
+        }
+      };
+      xhr.onerror = () => {
+        setLoading(prev => ({ ...prev, [`upload_${video.id}`]: false }));
+        alert('Network error occurred while uploading to YouTube.');
+      };
+      xhr.send(formData);
     } catch (error) {
-      console.error('Error uploading to YouTube:', error);
-    } finally {
       setLoading(prev => ({ ...prev, [`upload_${video.id}`]: false }));
+      alert('Failed to upload video to YouTube.');
     }
   };
 
@@ -191,6 +275,24 @@ export default function ShortsGeneratorPipeline() {
     return 'pending';
   };
 
+  const handleConnectYouTube = () => {
+    const clientId = '469392705036-1i8oeacm2c7cjd0h8mi21u3475p9638l.apps.googleusercontent.com';
+    const redirectUri = 'http://localhost:3000/auth/youtube/callback';
+    const scope = encodeURIComponent('https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly');
+    // Encode return URL in the state parameter
+    const returnUrl = window.location.pathname + window.location.search;
+    const stateData = {
+      random: Math.random().toString(36).substring(2),
+      timestamp: Date.now(),
+      returnUrl: returnUrl
+    };
+    const state = btoa(JSON.stringify(stateData));
+    sessionStorage.setItem('youtube_oauth_state', state);
+    sessionStorage.setItem('youtube_return_url', returnUrl);
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&state=${encodeURIComponent(state)}&prompt=consent`;
+    window.location.href = authUrl;
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
       <div className="mb-8">
@@ -198,6 +300,15 @@ export default function ShortsGeneratorPipeline() {
         <p className="text-slate-600 dark:text-slate-400">
           Automated crypto content generation from news to YouTube shorts
         </p>
+      </div>
+
+      <div className="mb-4 flex items-center space-x-4">
+        <Button onClick={handleConnectYouTube} variant="outline">
+          {isYouTubeConnected ? 'YouTube Connected' : 'Connect YouTube'}
+        </Button>
+        {!isYouTubeConnected && (
+          <span className="text-sm text-red-500">You must connect your YouTube account to upload videos.</span>
+        )}
       </div>
 
       {/* Pipeline Status */}
@@ -372,34 +483,57 @@ export default function ShortsGeneratorPipeline() {
                         Status: {video.status === 'video_placeholder' ? 'Ready for video generation' : video.status}
                       </p>
                     </div>
-                    <div className="flex space-x-2">
-                      {video.status === 'video_placeholder' && (
-                        <Alert className="max-w-md">
-                          <AlertCircle className="h-4 w-4" />
-                          <AlertDescription>
-                            Video generation API (Lumen5/Pictory) not configured. 
-                            Connect your API to enable automatic video creation.
-                          </AlertDescription>
-                        </Alert>
+                    <div className="flex flex-col space-y-2 items-end">
+                      {video.status !== 'uploaded' && (
+                        <>
+                          <input
+                            type="file"
+                            accept="video/*"
+                            ref={fileInputRef}
+                            style={{ display: 'none' }}
+                            onChange={handleFileChange}
+                          />
+                          <Button
+                            variant="outline"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={loading[`upload_${video.id}`]}
+                            className="mb-2"
+                          >
+                            Select Video File
+                          </Button>
+                          {videoFile && (
+                            <span className="text-xs text-slate-500 mb-2">Selected: {videoFile.name}</span>
+                          )}
+                          <Button
+                            onClick={() => uploadToYouTube(video)}
+                            disabled={loading[`upload_${video.id}`] || video.status === 'video_placeholder' || !videoFile}
+                          >
+                            {loading[`upload_${video.id}`] ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Upload className="mr-2 h-4 w-4" />
+                            )}
+                            Upload to YouTube
+                          </Button>
+                          {uploadProgress > 0 && uploadProgress < 100 && (
+                            <div className="w-32 mt-2">
+                              <div className="h-2 bg-slate-200 rounded-full">
+                                <div
+                                  className="h-2 bg-blue-500 rounded-full"
+                                  style={{ width: `${uploadProgress}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-slate-500">{uploadProgress}%</span>
+                            </div>
+                          )}
+                        </>
                       )}
-                      {video.status === 'uploaded' ? (
+                      {video.status === 'uploaded' && (
                         <Button variant="outline" asChild>
                           <a href={video.url} target="_blank" rel="noopener noreferrer">
                             <Youtube className="mr-2 h-4 w-4" />
                             View on YouTube
                           </a>
-                        </Button>
-                      ) : (
-                        <Button 
-                          onClick={() => uploadToYouTube(video)}
-                          disabled={loading[`upload_${video.id}`] || video.status === 'video_placeholder'}
-                        >
-                          {loading[`upload_${video.id}`] ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <Upload className="mr-2 h-4 w-4" />
-                          )}
-                          Upload to YouTube
                         </Button>
                       )}
                     </div>
