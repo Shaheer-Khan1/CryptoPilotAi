@@ -16,7 +16,10 @@ import {
   Copy,
   CheckCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  FileText,
+  Calendar,
+  Crown
 } from "lucide-react";
 import Moralis from 'moralis';
 import { Buffer } from 'buffer';
@@ -253,7 +256,7 @@ const Portfolio = () => {
   const [ethBalance, setEthBalance] = useState(() => {
     return localStorage.getItem('ethBalance');
   });
-  const isFreeTier = true;
+  const isFreeTier = !userData?.plan || userData?.plan === "starter";
 
   // Add API status state
   const [apiStatus, setApiStatus] = useState({
@@ -859,6 +862,128 @@ Provide practical, actionable advice based on current crypto market conditions.
                   onRefresh={refreshPortfolio}
                   isLoading={isLoading}
                 />
+
+                {/* Weekly Portfolio Reports - Pro Only */}
+                {!isFreeTier && weeklyReports.length > 0 && (
+                  <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <CardTitle className="text-slate-900 dark:text-white flex items-center">
+                        <Calendar className="mr-2 h-5 w-5" />
+                        Weekly Portfolio Reports
+                      </CardTitle>
+                      <Badge variant="default" className="bg-gradient-to-r from-purple-500 to-blue-500">
+                        <Crown className="mr-1 h-3 w-3" />
+                        Pro Feature
+                      </Badge>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {weeklyReports.map((report) => (
+                          <div key={report.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                            <div className="flex items-center justify-between mb-3">
+                              <div>
+                                <h4 className="font-semibold text-slate-900 dark:text-white">{report.week}</h4>
+                                <p className="text-sm text-slate-600 dark:text-slate-400">Generated on {report.generatedAt}</p>
+                              </div>
+                              <Button variant="outline" size="sm">
+                                <Download className="mr-2 h-4 w-4" />
+                                Download PDF
+                              </Button>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+                              <div>
+                                <p className="text-xs text-slate-500 mb-1">Start Value</p>
+                                <p className="font-semibold text-slate-900 dark:text-white">{report.startValue}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-500 mb-1">End Value</p>
+                                <p className="font-semibold text-slate-900 dark:text-white">{report.endValue}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-500 mb-1">Performance</p>
+                                <p className={`font-semibold ${report.performance.startsWith('+') ? 'text-green-600' : 'text-red-500'}`}>
+                                  {report.performance}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-500 mb-1">Transactions</p>
+                                <p className="font-semibold text-slate-900 dark:text-white">{report.transactions}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center justify-between text-sm">
+                              <span>Top Gainer: <strong className="text-green-600">{report.topGainer}</strong></span>
+                              <span>Top Loser: <strong className="text-red-500">{report.topLoser}</strong></span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <FileText className="h-8 w-8 text-blue-600" />
+                            <div>
+                              <h4 className="font-semibold text-blue-800 dark:text-blue-200">Automated Weekly Reports</h4>
+                              <p className="text-sm text-blue-600 dark:text-blue-300">Get detailed portfolio analysis every Monday</p>
+                            </div>
+                          </div>
+                          <Button variant="outline" size="sm">
+                            <Download className="mr-2 h-4 w-4" />
+                            Download All
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Free User - Weekly Reports Promotion */}
+                {isFreeTier && (
+                  <Card className="bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 backdrop-blur-xl border-purple-200 dark:border-purple-800">
+                    <CardHeader>
+                      <CardTitle className="text-slate-900 dark:text-white flex items-center">
+                        <Calendar className="mr-2 h-5 w-5" />
+                        Weekly Portfolio Reports
+                        <Lock className="ml-2 h-4 w-4 text-purple-600" />
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-8">
+                        <FileText className="mx-auto h-16 w-16 text-purple-400 mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+                          Unlock Weekly Portfolio Reports
+                        </h3>
+                        <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-md mx-auto">
+                          Get detailed weekly analysis of your portfolio performance, top gainers/losers, and downloadable PDF reports.
+                        </p>
+                        <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
+                          <div className="flex items-center text-slate-600 dark:text-slate-400">
+                            <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                            Weekly performance analysis
+                          </div>
+                          <div className="flex items-center text-slate-600 dark:text-slate-400">
+                            <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                            Downloadable PDF reports
+                          </div>
+                          <div className="flex items-center text-slate-600 dark:text-slate-400">
+                            <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                            Top gainers & losers tracking
+                          </div>
+                          <div className="flex items-center text-slate-600 dark:text-slate-400">
+                            <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                            Transaction summaries
+                          </div>
+                        </div>
+                        <Button className="bg-gradient-to-r from-purple-500 to-blue-500 text-white">
+                          <Crown className="mr-2 h-4 w-4" />
+                          Upgrade to Pro
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Portfolio Breakdown */}
                 <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">

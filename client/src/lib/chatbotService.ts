@@ -1,0 +1,116 @@
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  where, 
+  getDocs, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  orderBy,
+  Timestamp 
+} from 'firebase/firestore';
+import { db } from './firebase';
+
+export interface ChatBot {
+  id?: string;
+  name: string;
+  platform: string;
+  status: string;
+  users: number;
+  messages: number;
+  lastUpdated: string;
+  knowledge: string;
+  deploymentUrl: string | null;
+  canDeploy: boolean;
+  userId: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+const COLLECTION_NAME = 'chatbots';
+
+// Create a new chatbot
+export const createChatbot = async (botData: Omit<ChatBot, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
+  try {
+    const now = Timestamp.now();
+    const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+      ...botData,
+      createdAt: now,
+      updatedAt: now
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating chatbot:', error);
+    throw new Error('Failed to create chatbot');
+  }
+};
+
+// Get all chatbots for a specific user
+export const getUserChatbots = async (userId: string): Promise<ChatBot[]> => {
+  try {
+    const q = query(
+      collection(db, COLLECTION_NAME),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const bots: ChatBot[] = [];
+    
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      bots.push({
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt
+      } as ChatBot);
+    });
+    
+    return bots;
+  } catch (error) {
+    console.error('Error fetching user chatbots:', error);
+    throw new Error('Failed to fetch chatbots');
+  }
+};
+
+// Update a chatbot
+export const updateChatbot = async (botId: string, updates: Partial<ChatBot>): Promise<void> => {
+  try {
+    const botRef = doc(db, COLLECTION_NAME, botId);
+    await updateDoc(botRef, {
+      ...updates,
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error updating chatbot:', error);
+    throw new Error('Failed to update chatbot');
+  }
+};
+
+// Delete a chatbot
+export const deleteChatbot = async (botId: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, COLLECTION_NAME, botId));
+  } catch (error) {
+    console.error('Error deleting chatbot:', error);
+    throw new Error('Failed to delete chatbot');
+  }
+};
+
+// Toggle bot status (active/inactive)
+export const toggleBotStatus = async (botId: string, currentStatus: string): Promise<void> => {
+  try {
+    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+    const botRef = doc(db, COLLECTION_NAME, botId);
+    await updateDoc(botRef, { 
+      status: newStatus,
+      lastUpdated: new Date().toLocaleString(),
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error toggling bot status:', error);
+    throw new Error('Failed to toggle bot status');
+  }
+}; 

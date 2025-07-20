@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,52 +7,65 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bot, Upload, Link, MessageSquare, Settings, Lock, RefreshCw, Trash2, Play, Pause } from "lucide-react";
+import { Bot, Upload, Link, MessageSquare, Settings, Lock, RefreshCw, Trash2, Play, Pause, Star, Crown, Loader2, ExternalLink, Copy, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  createChatbot, 
+  getUserChatbots, 
+  toggleBotStatus as toggleBotStatusService, 
+  deleteChatbot,
+  updateChatbot,
+  ChatBot
+} from "@/lib/chatbotService";
+import { testFirebaseConnection } from "@/lib/testFirebase";
+import { testBasicFirebaseConnection } from "@/lib/simplifiedTest";
+import { deployBot, undeployBot, DeploymentInfo } from "@/lib/deploymentService";
 
 export default function ChatbotBuilder() {
-  // Mock user data - replace with actual auth
-  const userData = { plan: "starter" }; // or "pro"
+  const { userData } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [loadingBots, setLoadingBots] = useState(true);
   const [activeTab, setActiveTab] = useState("upload");
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [botName, setBotName] = useState("");
   const [description, setDescription] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
-  const [selectedPlatform, setSelectedPlatform] = useState("");
+
   const [dataSource, setDataSource] = useState("upload");
   const [chatMode, setChatMode] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [processingBot, setProcessingBot] = useState(null);
+  const [deploymentInfo, setDeploymentInfo] = useState<DeploymentInfo | null>(null);
+  const [showDeployment, setShowDeployment] = useState(false);
 
   const isFreeTier = !userData?.plan || userData?.plan === "starter";
 
-  // Mock chatbots data with enhanced functionality
-  const [userBots, setUserBots] = useState([
-    {
-      id: 1,
-      name: "Bitcoin News Bot",
-      platform: "Telegram",
-      status: "active",
-      users: 245,
-      messages: 1234,
-      lastUpdated: "2 hours ago",
-      knowledge: "Trained on Bitcoin whitepaper and latest market analysis",
-      deploymentUrl: "https://t.me/bitcoin_news_ai_bot"
-    },
-    {
-      id: 2,
-      name: "DeFi Insights Bot",
-      platform: "Discord",
-      status: "inactive",
-      users: 89,
-      messages: 567,
-      lastUpdated: "1 day ago",
-      knowledge: "Trained on DeFi protocols documentation",
-      deploymentUrl: null
+  // Real chatbots from database
+  const [userBots, setUserBots] = useState<ChatBot[]>([]);
+
+  // Load user's chatbots from database
+  const loadUserBots = async () => {
+    if (!userData?.firebaseUid) return;
+    
+    try {
+      setLoadingBots(true);
+      const bots = await getUserChatbots(userData.firebaseUid);
+      setUserBots(bots);
+    } catch (error) {
+      console.error('Error loading bots:', error);
+      alert('Failed to load your bots. Please try again.');
+    } finally {
+      setLoadingBots(false);
     }
-  ]);
+  };
+
+  // Load bots when component mounts or user changes
+  useEffect(() => {
+    if (userData?.firebaseUid) {
+      loadUserBots();
+    }
+  }, [userData?.firebaseUid]);
 
   // Gemini API integration
   const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -161,16 +175,37 @@ export default function ChatbotBuilder() {
     return `Content from ${url}: This is sample webpage content for demonstration.`;
   };
 
+  const testFirebase = async () => {
+    console.log('Running Firebase connection test...');
+    const result = await testFirebaseConnection();
+    alert(result.success ? '✅ Firebase working!' : `❌ Firebase error: ${result.error}`);
+  };
+
+  const testBasicFirebase = () => {
+    console.log('Running BASIC Firebase test...');
+    const result = testBasicFirebaseConnection();
+    alert(result.success ? '✅ Basic Firebase OK!' : `❌ Basic error: ${result.error}`);
+  };
+
   const handleCreateBot = async (e) => {
     e.preventDefault();
     
-    if (isFreeTier && userBots.length >= 1) {
-      alert("Free tier allows only 1 bot. Upgrade to Pro for unlimited bots.");
+    if (!botName.trim()) {
+      alert('Please enter a bot name');
       return;
     }
 
-    if (!botName.trim()) {
-      alert("Please enter a bot name");
+    if (!userData?.firebaseUid) {
+      console.error('No user authentication found:', userData);
+      alert('Please log in to create a bot');
+      return;
+    }
+    
+    console.log('User authenticated with ID:', userData.firebaseUid);
+
+    // Check bot limits for free users
+    if (isFreeTier && userBots.length >= 1) {
+      alert('Free users can only create 1 bot. Upgrade to Pro for unlimited bots!');
       return;
     }
 
@@ -198,35 +233,44 @@ export default function ChatbotBuilder() {
 
       // Analyze content with Gemini
       const knowledgeBase = await analyzeContent(content);
-
-      // Create new bot
-      const newBot = {
-        id: Date.now(),
+      
+      // Create bot data for Firebase database
+      const botData = {
         name: botName,
-        platform: selectedPlatform || "Web Chat",
-        status: "processing",
+        platform: 'Web Chat',
+        status: 'training',
         users: 0,
         messages: 0,
-        lastUpdated: "Just now",
+        lastUpdated: new Date().toLocaleString(),
         knowledge: knowledgeBase,
         deploymentUrl: null,
-        description: description
+        canDeploy: !isFreeTier,
+        userId: userData.firebaseUid
       };
 
-      // Simulate bot processing
-      setUserBots(prev => [...prev, newBot]);
+      console.log('Creating bot with data:', botData);
+
+      // Save to Firebase database
+      const botId = await createChatbot(botData);
+      console.log('Bot created successfully with ID:', botId);
       
-      // Simulate deployment process
-      setTimeout(() => {
-        setUserBots(prev => 
-          prev.map(bot => 
-            bot.id === newBot.id 
-              ? { ...bot, status: "active", deploymentUrl: selectedPlatform ? `https://bot-deploy-${bot.id}.example.com` : null }
-              : bot
-          )
-        );
-        setProcessingBot(null);
-        alert(`Bot "${botName}" created successfully!`);
+      // Reload bots from database to show the new bot
+      await loadUserBots();
+      
+      // Simulate training completion after 3 seconds
+      setTimeout(async () => {
+        try {
+          await updateChatbot(botId, { 
+            status: isFreeTier ? 'created' : 'inactive',
+            lastUpdated: new Date().toLocaleString()
+          });
+          await loadUserBots(); // Reload to get updated status
+          setProcessingBot(null);
+          console.log('Bot training completed');
+        } catch (error) {
+          console.error('Error updating bot status:', error);
+          setProcessingBot(null);
+        }
       }, 3000);
 
       // Reset form
@@ -234,7 +278,12 @@ export default function ChatbotBuilder() {
       setDescription("");
       setSourceUrl("");
       setUploadedFiles([]);
-      setSelectedPlatform("");
+      setActiveTab('manage');
+      
+      alert(isFreeTier 
+        ? 'Bot created successfully! Upgrade to Pro to deploy and activate your bot.' 
+        : 'Bot created successfully!'
+      );
       
     } catch (error) {
       console.error('Error creating bot:', error);
@@ -273,10 +322,56 @@ export default function ChatbotBuilder() {
     );
   };
 
-  const deleteBot = (botId) => {
-    if (confirm("Are you sure you want to delete this bot?")) {
-      setUserBots(prev => prev.filter(bot => bot.id !== botId));
+  const deleteBot = async (botId: string) => {
+    if (!confirm('Are you sure you want to delete this bot? This action cannot be undone.')) {
+      return;
     }
+    
+    try {
+      await deleteChatbot(botId);
+      await loadUserBots(); // Reload to remove deleted bot
+      alert('Bot deleted successfully');
+    } catch (error) {
+      console.error('Error deleting bot:', error);
+      alert('Failed to delete bot. Please try again.');
+    }
+  };
+
+  const handleDeploy = async (bot: ChatBot) => {
+    if (isFreeTier) {
+      alert('Deploy feature is available for Pro users only. Upgrade to Pro to deploy your bots!');
+      return;
+    }
+
+    try {
+      const deployment = await deployBot(bot.id!, bot.name);
+      setDeploymentInfo(deployment);
+      setShowDeployment(true);
+      await loadUserBots(); // Reload to get updated deployment status
+    } catch (error) {
+      console.error('Error deploying bot:', error);
+      alert('Failed to deploy bot. Please try again.');
+    }
+  };
+
+  const handleUndeploy = async (botId: string) => {
+    if (!confirm('Are you sure you want to undeploy this bot? The current deployment URL will stop working.')) {
+      return;
+    }
+
+    try {
+      await undeployBot(botId);
+      await loadUserBots(); // Reload to get updated status
+      alert('Bot undeployed successfully');
+    } catch (error) {
+      console.error('Error undeploying bot:', error);
+      alert('Failed to undeploy bot. Please try again.');
+    }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    alert(`${label} copied to clipboard!`);
   };
 
   if (chatMode) {
@@ -448,25 +543,52 @@ export default function ChatbotBuilder() {
                   </Tabs>
                 </div>
 
-                {!isFreeTier && (
-                  <div>
-                    <Label className="text-slate-700 dark:text-slate-300">Deployment Platform (Optional)</Label>
-                    <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select platform or leave empty for web chat only" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="telegram">Telegram</SelectItem>
-                        <SelectItem value="discord">Discord</SelectItem>
-                        <SelectItem value="web">Web Chat Only</SelectItem>
-                      </SelectContent>
-                    </Select>
+                <div className="space-y-2">
+                  <Button 
+                    type="button"
+                    variant="outline"
+                    onClick={testBasicFirebase}
+                    className="w-full"
+                  >
+                    🧪 Test Basic Firebase (Check Keys)
+                  </Button>
+                  <Button 
+                    type="button"
+                    variant="outline"
+                    onClick={testFirebase}
+                    className="w-full"
+                  >
+                    🔧 Test Firebase Connection
+                  </Button>
+                  <Button 
+                    type="button" 
+                    onClick={handleCreateBot} 
+                    disabled={loading || (isFreeTier && userBots.length >= 1)} 
+                    className="w-full"
+                  >
+                    {loading ? "Creating Bot with AI..." : isFreeTier && userBots.length >= 1 ? "Upgrade to Pro for More Bots" : "Create AI Chatbot"}
+                  </Button>
+                </div>
+                
+                {isFreeTier && (
+                  <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-start space-x-3">
+                      <Lock className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-1">Free Tier Limitations</h4>
+                        <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1">
+                          <li>• Create 1 bot only</li>
+                          <li>• Cannot deploy to platforms</li>
+                          <li>• Web chat testing only</li>
+                        </ul>
+                        <Button variant="outline" size="sm" className="mt-3">
+                          <Crown className="mr-2 h-4 w-4" />
+                          Upgrade to Pro for Full Features
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
-
-                <Button type="button" onClick={handleCreateBot} disabled={loading} className="w-full">
-                  {loading ? "Creating Bot with AI..." : "Create AI Chatbot"}
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -476,14 +598,32 @@ export default function ChatbotBuilder() {
           <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-slate-900 dark:text-white">Your Bots</CardTitle>
-              <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
-                <RefreshCw className="mr-2 h-4 w-4" />
+              <Button variant="outline" size="sm" onClick={loadUserBots} disabled={loadingBots}>
+                {loadingBots ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="space-y-6">
-                {userBots.map((bot) => (
+              {loadingBots ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                  <span className="ml-2 text-slate-600 dark:text-slate-400">Loading your bots...</span>
+                </div>
+              ) : userBots.length === 0 ? (
+                <div className="text-center py-12">
+                  <Bot className="mx-auto h-16 w-16 text-slate-400 mb-4" />
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">No bots created yet</h3>
+                  <p className="text-slate-600 dark:text-slate-400 mb-4">
+                    Create your first AI chatbot to get started
+                  </p>
+                  <Button onClick={() => setActiveTab('create')}>
+                    <Bot className="mr-2 h-4 w-4" />
+                    Create Your First Bot
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {userBots.map((bot) => (
                   <div key={bot.id} className="p-6 bg-slate-50 dark:bg-slate-800 rounded-lg">
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-start space-x-4">
@@ -522,41 +662,179 @@ export default function ChatbotBuilder() {
                         <MessageSquare className="mr-2 h-4 w-4" />
                         Test Chat
                       </Button>
+                      
+                      {!isFreeTier && (
+                        bot.deploymentUrl ? (
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => window.open(bot.deploymentUrl, '_blank')}>
+                              <ExternalLink className="mr-2 h-4 w-4" />
+                              View Live
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => handleUndeploy(bot.id!)}>
+                              <Pause className="mr-2 h-4 w-4" />
+                              Undeploy
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button variant="default" size="sm" onClick={() => handleDeploy(bot)}>
+                            <Upload className="mr-2 h-4 w-4" />
+                            Deploy
+                          </Button>
+                        )
+                      )}
+                      
                       <Button 
                         variant="outline" 
                         size="sm" 
-                        onClick={() => toggleBotStatus(bot.id)}
-                        disabled={bot.status === "processing"}
+                        onClick={() => toggleBotStatus(bot.id!)}
+                        disabled={isFreeTier && bot.status !== 'active'}
                       >
-                        {bot.status === "active" ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
-                        {bot.status === "active" ? "Pause" : "Activate"}
+                        {bot.status === "active" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                       </Button>
-                      {bot.deploymentUrl && (
-                        <Button variant="outline" size="sm" onClick={() => window.open(bot.deploymentUrl, '_blank')}>
-                          <Link className="mr-2 h-4 w-4" />
-                          Open Bot
-                        </Button>
-                      )}
-                      <Button variant="outline" size="sm" onClick={() => deleteBot(bot.id)}>
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
+                      <Button variant="outline" size="sm">
+                        <Settings className="h-4 w-4" />
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => deleteBot(bot.id!)}
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
-                ))}
-                
-                {userBots.length === 0 && (
-                  <div className="text-center py-12">
-                    <Bot className="mx-auto h-12 w-12 text-slate-400 mb-4" />
-                    <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">No bots yet</h3>
-                    <p className="text-slate-600 dark:text-slate-400">Create your first AI chatbot to get started</p>
-                  </div>
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Deployment Modal */}
+      {showDeployment && deploymentInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Bot Deployed Successfully! 🎉</h2>
+                <Button variant="ghost" size="sm" onClick={() => setShowDeployment(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+              <p className="text-slate-600 dark:text-slate-400 mt-2">
+                Your bot is now live! Use the integration options below to add it to your website.
+              </p>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Deployment URL */}
+              <div>
+                <Label className="text-slate-700 dark:text-slate-300 font-semibold">Live Chat URL</Label>
+                <div className="mt-2 flex items-center space-x-2">
+                  <Input 
+                    value={deploymentInfo.deploymentUrl} 
+                    readOnly 
+                    className="font-mono text-sm"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => copyToClipboard(deploymentInfo.deploymentUrl, 'Deployment URL')}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => window.open(deploymentInfo.deploymentUrl, '_blank')}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Embed Code */}
+              <div>
+                <Label className="text-slate-700 dark:text-slate-300 font-semibold">Website Embed Code</Label>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+                  Copy and paste this code into your website's HTML to add the chatbot
+                </p>
+                <div className="relative">
+                  <Textarea 
+                    value={deploymentInfo.embedCode}
+                    readOnly
+                    className="font-mono text-xs h-32 bg-slate-50 dark:bg-slate-900"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    className="absolute top-2 right-2"
+                    onClick={() => copyToClipboard(deploymentInfo.embedCode, 'Embed code')}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* API Endpoint */}
+              <div>
+                <Label className="text-slate-700 dark:text-slate-300 font-semibold">API Endpoint</Label>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+                  For custom integrations and direct API access
+                </p>
+                <div className="flex items-center space-x-2">
+                  <Input 
+                    value={deploymentInfo.apiEndpoint} 
+                    readOnly 
+                    className="font-mono text-sm"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => copyToClipboard(deploymentInfo.apiEndpoint, 'API endpoint')}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Integration Script */}
+              <div>
+                <Label className="text-slate-700 dark:text-slate-300 font-semibold">Developer Integration</Label>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+                  Advanced integration code for developers
+                </p>
+                <div className="relative">
+                  <Textarea 
+                    value={deploymentInfo.integrationScript}
+                    readOnly
+                    className="font-mono text-xs h-48 bg-slate-50 dark:bg-slate-900"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    className="absolute top-2 right-2"
+                    onClick={() => copyToClipboard(deploymentInfo.integrationScript, 'Integration script')}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                <Button variant="outline" onClick={() => setShowDeployment(false)}>
+                  Close
+                </Button>
+                <Button onClick={() => window.open(deploymentInfo.deploymentUrl, '_blank')}>
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Test Live Bot
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

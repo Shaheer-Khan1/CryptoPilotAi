@@ -16,8 +16,6 @@ export function Navbar() {
 
   const navigation = [
     { name: "Home", href: "/" },
-    { name: "Features", href: "/features" },
-    { name: "Pricing", href: "/pricing" },
     ...(currentUser ? [{ name: "Dashboard", href: "/dashboard" }] : []),
   ];
 
