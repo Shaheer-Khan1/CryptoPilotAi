@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { auth } from "@/lib/firebase";
 import { useStripe, Elements, PaymentElement, useElements } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
 import { Button } from "@/components/ui/button";
@@ -98,10 +99,16 @@ export default function Register() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const planParam = urlParams.get("plan");
+    const periodParam = urlParams.get("period");
     const stepParam = urlParams.get("step");
     
     if (planParam) {
-      setFormData(prev => ({ ...prev, plan: planParam }));
+      // Map the plan names correctly - for user creation, we only need 'starter' or 'pro'
+      if (planParam === "starter") {
+        setFormData(prev => ({ ...prev, plan: "starter" }));
+      } else if (planParam === "pro") {
+        setFormData(prev => ({ ...prev, plan: "pro" })); // Just 'pro', not 'pro_monthly'/'pro_yearly'
+      }
     }
     if (stepParam === 'account') {
       setStep('account');
@@ -113,12 +120,19 @@ export default function Register() {
     if (step === 'payment' && formData.plan !== 'starter') {
       const createSetupIntent = async () => {
         try {
+          // Get billing period from URL params for Stripe
+          const urlParams = new URLSearchParams(window.location.search);
+          const periodParam = urlParams.get("period");
+          const planForStripe = periodParam === 'yearly' ? 'pro_yearly' : 'pro_monthly';
+          
+          console.log("Creating setup intent for plan:", planForStripe);
+          
           const response = await fetch("/api/create-setup-intent", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ planType: formData.plan }),
+            body: JSON.stringify({ planType: planForStripe }),
           });
 
           const data = await response.json();
@@ -148,6 +162,37 @@ export default function Register() {
 
     try {
       await register(formData.email, formData.password, formData.username, formData.plan);
+      
+      // If this is a Pro plan and we have a setup intent, create the subscription
+      if (formData.plan === 'pro' && setupIntentId) {
+        console.log("Creating subscription for Pro plan...");
+        
+        // Get the billing period from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const periodParam = urlParams.get("period");
+        const planTypeForStripe = periodParam === 'yearly' ? 'pro_yearly' : 'pro_monthly';
+        
+        // Create the subscription
+        const subscriptionResponse = await fetch("/api/create-subscription", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${await auth.currentUser?.getIdToken()}`,
+          },
+          body: JSON.stringify({ 
+            planType: planTypeForStripe,
+            setupIntentId: setupIntentId 
+          }),
+        });
+
+        if (!subscriptionResponse.ok) {
+          const errorData = await subscriptionResponse.json();
+          throw new Error(errorData.message || "Failed to create subscription");
+        }
+
+        const subscriptionData = await subscriptionResponse.json();
+        console.log("Subscription created:", subscriptionData);
+      }
       
       toast({
         title: "Account created!",

@@ -26,16 +26,16 @@ export default function ChatbotBuilder() {
   const [loading, setLoading] = useState(false);
   const [loadingBots, setLoadingBots] = useState(true);
   const [activeTab, setActiveTab] = useState("upload");
-  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
   const [botName, setBotName] = useState("");
   const [description, setDescription] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
 
   const [dataSource, setDataSource] = useState("upload");
-  const [chatMode, setChatMode] = useState(null);
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMode, setChatMode] = useState<any>(null);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState("");
-  const [processingBot, setProcessingBot] = useState(null);
+  const [processingBot, setProcessingBot] = useState<any>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<DeploymentInfo | null>(null);
   const [showDeployment, setShowDeployment] = useState(false);
 
@@ -70,7 +70,7 @@ export default function ChatbotBuilder() {
   // Gemini API integration
   const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-  const analyzeContent = async (content, contentType = "text") => {
+  const analyzeContent = async (content: any, contentType: string = "text") => {
     try {
       const prompt = `
         Analyze the following ${contentType} content and create a comprehensive knowledge base summary for an AI chatbot:
@@ -109,7 +109,7 @@ export default function ChatbotBuilder() {
     }
   };
 
-  const generateBotResponse = async (userMessage, botKnowledge) => {
+  const generateBotResponse = async (userMessage: any, botKnowledge: any) => {
     try {
       const prompt = `
         You are an AI chatbot with the following knowledge base:
@@ -142,16 +142,16 @@ export default function ChatbotBuilder() {
     }
   };
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = (event: any) => {
     const files = Array.from(event.target.files);
     setUploadedFiles(prev => [...prev, ...files]);
   };
 
-  const removeFile = (index) => {
+  const removeFile = (index: any) => {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const extractTextFromFile = (file) => {
+  const extractTextFromFile = (file: any) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -169,7 +169,7 @@ export default function ChatbotBuilder() {
     });
   };
 
-  const fetchUrlContent = async (url) => {
+  const fetchUrlContent = async (url: any) => {
     // In production, you'd use a backend service to fetch and parse webpage content
     // For demo, we'll simulate this
     return `Content from ${url}: This is sample webpage content for demonstration.`;
@@ -187,7 +187,7 @@ export default function ChatbotBuilder() {
     alert(result.success ? '✅ Basic Firebase OK!' : `❌ Basic error: ${result.error}`);
   };
 
-  const handleCreateBot = async (e) => {
+  const handleCreateBot = async (e: any) => {
     e.preventDefault();
     
     if (!botName.trim()) {
@@ -293,7 +293,7 @@ export default function ChatbotBuilder() {
     }
   };
 
-  const handleTestChat = (bot) => {
+  const handleTestChat = (bot: any) => {
     setChatMode(bot);
     setChatMessages([
       { role: "bot", content: `Hello! I'm ${bot.name}. I can help answer questions about ${bot.description || "the topics I was trained on"}. What would you like to know?` }
@@ -312,7 +312,7 @@ export default function ChatbotBuilder() {
     setChatMessages(prev => [...prev, { role: "bot", content: botResponse }]);
   };
 
-  const toggleBotStatus = (botId) => {
+  const toggleBotStatus = (botId: any) => {
     setUserBots(prev => 
       prev.map(bot => 
         bot.id === botId 
@@ -322,7 +322,7 @@ export default function ChatbotBuilder() {
     );
   };
 
-  const deleteBot = async (botId: string) => {
+  const deleteBot = async (botId: any) => {
     if (!confirm('Are you sure you want to delete this bot? This action cannot be undone.')) {
       return;
     }
@@ -345,7 +345,19 @@ export default function ChatbotBuilder() {
 
     try {
       const deployment = await deployBot(bot.id!, bot.name);
-      setDeploymentInfo(deployment);
+      // Override deployment info for local development
+      const LOCAL_BASE_URL = 'http://localhost:3000';
+      const localDeploymentUrl = `${LOCAL_BASE_URL}/chat/${deployment.botId}`;
+      const localApiEndpoint = `${LOCAL_BASE_URL}/api/chat/${deployment.botId}`;
+      const localEmbedCode = `<!-- CryptoPilot AI Chatbot (Local) -->\n<div id=\"cryptopilot-chatbot-${deployment.botId}\"></div>\n<script>\n  (function() {\n    var script = document.createElement('script');\n    script.src = '${LOCAL_BASE_URL}/embed.js';\n    script.onload = function() {\n      CryptoPilotChat.init({\n        botId: '${deployment.botId}',\n        container: '#cryptopilot-chatbot-${deployment.botId}',\n        title: '${bot.name}',\n        theme: 'modern',\n        position: 'bottom-right' // or 'inline' for embedded\n      });\n    };\n    document.head.appendChild(script);\n  })();\n<\/script>`;
+      const localIntegrationScript = `// CryptoPilot AI Integration (Local)\nimport { CryptoPilotChat } from '@cryptopilot/chat-widget';\n\n// Initialize the chatbot\nconst chatbot = new CryptoPilotChat({\n  botId: '${deployment.botId}',\n  apiKey: 'your-api-key', // Get from dashboard\n  container: '#chatbot-container',\n  config: {\n    title: '${bot.name}',\n    theme: 'modern',\n    allowFileUpload: true,\n    showTypingIndicator: true,\n    position: 'bottom-right'\n  }\n});\n\n// API endpoint for custom integrations\nconst API_ENDPOINT = '${localApiEndpoint}';\n\n// Example API usage\nasync function sendMessage(message) {\n  const response = await fetch(API_ENDPOINT, {\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json',\n      'Authorization': 'Bearer your-api-key'\n    },\n    body: JSON.stringify({\n      message: message,\n      sessionId: 'user-session-id'\n    })\n  });\n  \n  return await response.json();\n}`;
+      setDeploymentInfo({
+        ...deployment,
+        deploymentUrl: localDeploymentUrl,
+        embedCode: localEmbedCode,
+        apiEndpoint: localApiEndpoint,
+        integrationScript: localIntegrationScript,
+      });
       setShowDeployment(true);
       await loadUserBots(); // Reload to get updated deployment status
     } catch (error) {

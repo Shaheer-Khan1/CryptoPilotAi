@@ -396,9 +396,9 @@ Be realistic and conservative. Only suggest BUY/SELL if there's strong convictio
                   >
                     <Star className="mr-2 h-4 w-4" />
                     Generate More Signals
-                  </Button>
-                </div>
-              )}
+                </Button>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -93,16 +93,30 @@ const SubscribeForm = ({ planType, setupIntentId }: { planType: string; setupInt
 export default function Subscribe() {
   const [clientSecret, setClientSecret] = useState("");
   const [setupIntentId, setSetupIntentId] = useState("");
-  const [planType, setPlanType] = useState("pro");
+  const [planType, setPlanType] = useState("pro_monthly");
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const { currentUser } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   useEffect(() => {
-    // Extract plan from URL query parameters
+    // Extract plan and period from URL query parameters
     const urlParams = new URLSearchParams(window.location.search);
     const planParam = urlParams.get("plan");
-    if (planParam) {
-      setPlanType(planParam);
+    const periodParam = urlParams.get("period");
+    
+    console.log("=== SUBSCRIBE PAGE DEBUG ===");
+    console.log("URL params - plan:", planParam, "period:", periodParam);
+    console.log("Current URL:", window.location.href);
+    
+    if (planParam === 'pro') {
+      const finalPlanType = periodParam === 'yearly' ? 'pro_yearly' : 'pro_monthly';
+      console.log("Setting planType to:", finalPlanType);
+      setPlanType(finalPlanType);
+      setBillingPeriod(periodParam === 'yearly' ? 'yearly' : 'monthly');
+    } else {
+      console.log("Setting planType to: starter");
+      setPlanType('starter');
     }
 
     // Create subscription setup
@@ -111,13 +125,17 @@ export default function Subscribe() {
 
       try {
         const token = await currentUser.getIdToken();
+        const finalPlanType = planParam === 'pro' ? (periodParam === 'yearly' ? 'pro_yearly' : 'pro_monthly') : 'starter';
+        
+        console.log("Sending to backend - planType:", finalPlanType);
+        
         const response = await fetch("/api/create-subscription", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`,
           },
-          body: JSON.stringify({ planType: planParam || "pro" }),
+          body: JSON.stringify({ planType: finalPlanType }),
         });
 
         const data = await response.json();
@@ -139,6 +157,7 @@ export default function Subscribe() {
         setClientSecret(data.clientSecret);
         setSetupIntentId(data.setupIntentId);
       } catch (error: any) {
+        console.error("Subscription creation error:", error);
         toast({
           title: "Error",
           description: error.message || "Failed to create subscription",
@@ -148,7 +167,7 @@ export default function Subscribe() {
     };
 
     createSubscription();
-  }, [currentUser, toast]);
+  }, [currentUser, toast, setLocation]);
 
   if (!clientSecret) {
     return (

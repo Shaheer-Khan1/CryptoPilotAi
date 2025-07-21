@@ -51,8 +51,8 @@ export const getUserChatbots = async (userId: string): Promise<ChatBot[]> => {
   try {
     const q = query(
       collection(db, COLLECTION_NAME),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
+      // Removed orderBy to avoid requiring a composite index
     );
     
     const querySnapshot = await getDocs(q);
@@ -66,6 +66,15 @@ export const getUserChatbots = async (userId: string): Promise<ChatBot[]> => {
         createdAt: data.createdAt,
         updatedAt: data.updatedAt
       } as ChatBot);
+    });
+    
+    // Sort by createdAt descending in JS (if present)
+    bots.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        // Firestore Timestamp has a toMillis() method
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return 0;
     });
     
     return bots;

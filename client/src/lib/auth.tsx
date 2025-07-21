@@ -50,6 +50,52 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (response.ok) {
         const user = await response.json();
         setUserData(user);
+      } else if (response.status === 404) {
+        // User not found in database - this should only happen for new registrations, not logins
+        console.log("User not found in database. This might be a registration flow or a data issue.");
+        
+        // For now, we'll only auto-create users if they don't exist
+        // In a production app, you'd want to handle this more carefully
+        console.warn("Auto-creating user for:", firebaseUser.email);
+        
+        // Extract email from Firebase user
+        const email = firebaseUser.email;
+        const baseUsername = email?.split('@')[0] || `user_${firebaseUser.uid.slice(0, 8)}`;
+        
+        // Create user in our database with default starter plan
+        // Add random suffix to avoid username conflicts
+        const randomSuffix = Math.random().toString(36).substring(2, 8);
+        const username = `${baseUsername}_${randomSuffix}`;
+        
+        try {
+          await apiRequest("POST", "/api/users", {
+            username,
+            email: email || '',
+            password: "firebase", // Firebase handles auth, this is just a placeholder
+            firebaseUid: firebaseUser.uid,
+            plan: "starter", // Default to starter plan for auto-created users
+          });
+          
+          console.log("User record created successfully with username:", username);
+        } catch (createError: any) {
+          console.error("Error creating user record:", createError);
+          // If creation fails, we'll still try to fetch user data in case it was created by another request
+        }
+        
+        // Retry fetching user data
+        const retryResponse = await fetch("/api/user", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        
+        if (retryResponse.ok) {
+          const user = await retryResponse.json();
+          setUserData(user);
+          console.log("User data loaded successfully after creation");
+        } else {
+          console.error("Failed to fetch user data after creation");
+        }
       }
     } catch (error) {
       console.error("Error fetching user data:", error);

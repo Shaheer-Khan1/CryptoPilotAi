@@ -5,10 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Brain, PieChart, Signal, BarChart3, Shield, Gem, Bot, Check, ArrowRight, Star, Zap } from "lucide-react";
+import { useState } from "react";
 
 export default function Landing() {
   const [, setLocation] = useLocation();
   const { currentUser } = useAuth();
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+
+  const proPrice = billingPeriod === 'yearly' ? '$499' : '$69';
+  const proPeriod = billingPeriod === 'yearly' ? '/year' : '/month';
+  const proButton = billingPeriod === 'yearly' ? 'Start Yearly Pro' : 'Start Pro Trial';
 
   const detailedFeatures = [
     {
@@ -59,60 +65,48 @@ export default function Landing() {
 
   const plans = [
     {
-      name: "Starter",
+      name: "Free Tier",
       price: "Free",
-      description: "Perfect for beginners",
+      description: "For getting started with basic AI tools",
       features: [
-        "Basic market analysis",
-        "5 AI predictions per day",
-        "Portfolio tracking for 3 coins",
-        "Email alerts"
+        "Market Feed (Last 24H only)",
+        "1 Altcoin Signal per Day",
+        "1 Portfolio Scan",
+        "Access to AI Bot Builder (1 bot, no deploy)"
       ],
       buttonText: "Get Started",
       popular: false
     },
     {
-      name: "Pro",
-      price: "$29",
-      period: "/month",
-      description: "For serious traders",
+      name: "CryptoPilot Pro",
+      price: proPrice,
+      period: proPeriod,
+      description: "Full access for serious traders and automation",
       features: [
-        "Advanced AI analysis",
-        "Unlimited AI predictions",
-        "Portfolio tracking for 50 coins",
-        "Real-time alerts",
-        "Trading bot access",
-        "Priority support"
+        "Full Market Feed with Daily Digests",
+        "Unlimited Altcoin Signals + AI-ranked coins",
+        "Weekly Portfolio Analysis with Downloadable Reports",
+        "Unlimited Bot Builders (with Telegram/Discord Deployment)",
+        "Early access to future features (e.g., NFT screener, DEX automation)"
       ],
-      buttonText: "Start Pro Trial",
+      buttonText: proButton,
       popular: true
     },
-    {
-      name: "Enterprise",
-      price: "$99",
-      period: "/month",
-      description: "For professional teams",
-      features: [
-        "Everything in Pro",
-        "Custom AI models",
-        "Unlimited portfolio tracking",
-        "API access",
-        "Team collaboration tools",
-        "Dedicated support"
-      ],
-      buttonText: "Contact Sales",
-      popular: false
-    }
+    // Removed Enterprise plan as per new requirements
   ];
 
   const handlePlanSelect = (planName: string) => {
     if (!currentUser) {
-      setLocation(`/register?plan=${planName.toLowerCase()}`);
+      if (planName === "Free Tier") {
+        setLocation(`/register?plan=starter`);
+      } else if (planName === "CryptoPilot Pro") {
+        setLocation(`/register?plan=pro&period=${billingPeriod}`);
+      }
     } else {
-      if (planName === "Starter") {
+      if (planName === "Free Tier") {
         setLocation("/dashboard");
-      } else {
-        setLocation(`/subscribe?plan=${planName.toLowerCase()}`);
+      } else if (planName === "CryptoPilot Pro") {
+        setLocation(`/subscribe?plan=pro&period=${billingPeriod}`);
       }
     }
   };
@@ -302,15 +296,29 @@ export default function Landing() {
               </span>
             </h2>
             <p className="text-xl text-slate-600 dark:text-slate-400">Choose the plan that fits your trading style</p>
+            <div className="flex justify-center mt-8">
+              <div className="inline-flex items-center bg-white dark:bg-slate-800 rounded-full shadow px-2 py-1">
+                <button
+                  className={`px-4 py-2 rounded-full font-semibold transition-colors ${billingPeriod === 'monthly' ? 'bg-orange-500 text-white' : 'text-slate-700 dark:text-slate-200'}`}
+                  onClick={() => setBillingPeriod('monthly')}
+                >
+                  Monthly
+                </button>
+                <button
+                  className={`px-4 py-2 rounded-full font-semibold transition-colors ${billingPeriod === 'yearly' ? 'bg-orange-500 text-white' : 'text-slate-700 dark:text-slate-200'}`}
+                  onClick={() => setBillingPeriod('yearly')}
+                >
+                  Yearly
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+          <div className="flex flex-col md:flex-row justify-center items-center gap-8 max-w-4xl mx-auto">
             {plans.map((plan, index) => (
               <Card 
                 key={plan.name} 
-                className={`relative bg-white dark:bg-slate-900 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 overflow-hidden ${
-                  plan.popular ? "scale-105 ring-4 ring-orange-500/20" : ""
-                }`}
+                className={`relative bg-white dark:bg-slate-900 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 overflow-hidden w-full max-w-sm ${plan.popular ? "scale-105 ring-4 ring-orange-500/20" : ""}`}
               >
                 {plan.popular && (
                   <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-orange-500 to-red-500 text-white text-center py-3 font-semibold">
@@ -353,7 +361,7 @@ export default function Landing() {
             ))}
           </div>
         </div>
-              </section>
+      </section>
     </div>
   );
 }

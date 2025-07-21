@@ -3,12 +3,12 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBeiUITLIDPXmkQE2PCWnLZ4pQCXfzOmpQ",
-  authDomain: "cryptopilotai.firebaseapp.com",
-  projectId: "cryptopilotai",
-  storageBucket: "cryptopilotai.firebasestorage.app",
-  messagingSenderId: "148334603177",
-  appId: "1:148334603177:web:167db90bed63c83c3ff2b8"
+  apiKey: "AIzaSyAw-9a0aPJ2uThEyXp_juv6xLShrMg-HME",
+  authDomain: "cryptopilotai-cf700.firebaseapp.com",
+  projectId: "cryptopilotai-cf700",
+  storageBucket: "cryptopilotai-cf700.firebasestorage.app",
+  messagingSenderId: "889952144945",
+  appId: "1:889952144945:web:c45b452dd07b80851acf10"
 };
 
 // Debug: Print config on load

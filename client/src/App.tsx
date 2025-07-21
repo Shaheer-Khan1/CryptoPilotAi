@@ -15,6 +15,7 @@ import Landing from "@/pages/landing";
 import Login from "@/pages/auth/login";
 import Register from "@/pages/auth/register";
 import Subscribe from "@/pages/subscribe";
+import Chat from "@/pages/chat";
 import DashboardOverview from "@/pages/dashboard/overview";
 import Portfolio from "@/pages/dashboard/portfolio";
 import Analysis from "@/pages/dashboard/analysis";
@@ -56,6 +57,7 @@ function Router() {
       <div className="min-h-[calc(100vh-4rem)]">
         <Switch>
           <Route path="/" component={Landing} />
+          <Route path="/chat/:botId" component={Chat} />
           <Route path="/login">
             <RedirectIfAuthenticated>
               <Login />
