@@ -4,6 +4,9 @@ import { storage } from "./storage";
 import { insertUserSchema } from "@shared/schema";
 import Stripe from "stripe";
 
+// In-memory storage for tasks
+const tasks = new Map();
+
 let stripe: Stripe | null = null;
 
 if (process.env.STRIPE_SECRET_KEY) {
@@ -290,6 +293,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         response: `Hello! I received your message: "${message}". I'm experiencing some technical difficulties, but I'm here to help!`
       });
     }
+  });
+
+  // Tasks endpoints
+  app.post("/tasks", async (req, res) => {
+    try {
+      const { script, search_query } = req.body;
+      
+      if (!script || !search_query) {
+        return res.status(400).json({ message: "Script and search query are required" });
+      }
+
+      const taskId = Math.random().toString(36).substring(7);
+      const task = {
+        task_id: taskId,
+        status: 'pending',
+        script,
+        search_query,
+        created_at: new Date().toISOString()
+      };
+
+      tasks.set(taskId, task);
+
+      // Simulate async processing
+      setTimeout(() => {
+        const updatedTask = {
+          ...task,
+          status: 'completed',
+          video_url: 'https://example.com/sample-video.mp4' // Replace with actual video URL
+        };
+        tasks.set(taskId, updatedTask);
+      }, 5000);
+
+      res.status(201).json(task);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/tasks/:taskId", (req, res) => {
+    const { taskId } = req.params;
+    const task = tasks.get(taskId);
+    
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+    
+    res.json(task);
   });
 
   const httpServer = createServer(app);
