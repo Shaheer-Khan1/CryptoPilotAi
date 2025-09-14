@@ -40,9 +40,19 @@ export const createChatbot = async (botData: Omit<ChatBot, 'id' | 'createdAt' | 
       updatedAt: now
     });
     return docRef.id;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating chatbot:', error);
-    throw new Error('Failed to create chatbot');
+    
+    // Handle specific Firebase errors
+    if (error.code === 'permission-denied') {
+      throw new Error('Permission denied. Please ensure you are logged in and have proper access.');
+    }
+    
+    if (error.code === 'unavailable') {
+      throw new Error('Firebase temporarily unavailable. Please try again in a moment.');
+    }
+    
+    throw new Error('Failed to create chatbot: ' + (error.message || 'Unknown error'));
   }
 };
 
@@ -78,8 +88,20 @@ export const getUserChatbots = async (userId: string): Promise<ChatBot[]> => {
     });
     
     return bots;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching user chatbots:', error);
+    
+    // Handle specific Firebase permission errors
+    if (error.code === 'permission-denied') {
+      console.warn('⚠️ Firebase permissions denied - returning empty bots array');
+      return []; // Return empty array instead of throwing
+    }
+    
+    if (error.code === 'unavailable') {
+      console.warn('⚠️ Firebase temporarily unavailable - returning cached or empty data');
+      return []; // Return empty array for network issues
+    }
+    
     throw new Error('Failed to fetch chatbots');
   }
 };

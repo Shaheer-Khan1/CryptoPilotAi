@@ -1,0 +1,10 @@
+{
+  "taskId": "f940652f-2378-4cf0-9da9-349eeaf95a27",
+  "status": "completed",
+  "duration": 40.39,
+  "message": "Video generation completed",
+  "filename": "f940652f-2378-4cf0-9da9-349eeaf95a27_1757662859516.mp4",
+  "filepath": "C:\\Users\\shahe\\OneDrive\\Desktop\\MyProject\\CryptoPilotAi\\uploads\\videos\\f940652f-2378-4cf0-9da9-349eeaf95a27_1757662859516.mp4",
+  "receivedAt": "2025-09-12T07:40:59.782Z",
+  "downloadUrl": "/api/video/f940652f-2378-4cf0-9da9-349eeaf95a27"
+}

@@ -582,6 +582,52 @@ Be realistic and conservative. Only suggest BUY/SELL if there's strong convictio
             </Card>
       </div>
 
+          {/* Module Status */}
+          <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700 mb-8">
+            <CardHeader>
+              <CardTitle className="text-slate-900 dark:text-white">Module Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid md:grid-cols-2 gap-4">
+                <a href="/dashboard/analysis" className="p-4 rounded-lg border bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold">Market Summary Feed</div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">Live prices + news</div>
+                  </div>
+                  <Badge variant="outline" className="text-green-700 border-green-300">Ready</Badge>
+                </a>
+                <a href="/dashboard/signals" className="p-4 rounded-lg border bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold">Altcoin Screener & Signals</div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">AI-ranked signals</div>
+                  </div>
+                  <Badge variant="outline" className="text-green-700 border-green-300">Ready</Badge>
+                </a>
+                <a href="/dashboard/portfolio" className="p-4 rounded-lg border bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold">Portfolio Analyzer</div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">Wallet connect + AI</div>
+                  </div>
+                  <Badge variant="outline">WIP</Badge>
+                </a>
+                <a href="/dashboard/chatbot-builder" className="p-4 rounded-lg border bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold">AI Chatbot Builder</div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">Upload/URL → Bot</div>
+                  </div>
+                  <Badge variant="outline">WIP</Badge>
+                </a>
+                <a href="/dashboard/shorts-generator" className="p-4 rounded-lg border bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 flex items-center justify-between md:col-span-2">
+                  <div>
+                    <div className="font-semibold">Shorts Generator</div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">Script → Video → YouTube</div>
+                  </div>
+                  <Badge variant="outline">WIP</Badge>
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Main Content Grid */}
           <div className="grid lg:grid-cols-2 gap-8 mb-8">
             {/* Market Overview */}

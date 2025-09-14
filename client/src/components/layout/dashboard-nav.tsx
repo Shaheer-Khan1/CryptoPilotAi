@@ -18,7 +18,7 @@ const navItems = [
   { name: "Market Summary", href: "/analysis", icon: Brain },
   { name: "Trading Signals", href: "/signals", icon: Star },
   { name: "Chatbot Builder", href: "/chatbot-builder", icon: Bot },
-  { name: "Shorts Only", href: "/shorts-generator", icon: Video },
+  { name: "Shorts Generator", href: "/shorts-generator", icon: Video },
   { name: "Billing", href: "/billing", icon: CreditCard },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

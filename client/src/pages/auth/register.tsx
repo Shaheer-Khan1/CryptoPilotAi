@@ -19,11 +19,15 @@ const stripePromise = import.meta.env.VITE_STRIPE_PUBLIC_KEY
 const PaymentForm = ({ 
   planType, 
   setupIntentId, 
-  onSuccess 
+  onSuccess,
+  onFail,
+  onSkipToFree
 }: { 
   planType: string; 
   setupIntentId: string;
   onSuccess: () => void;
+  onFail: () => void;
+  onSkipToFree: () => void;
 }) => {
   const stripe = useStripe();
   const elements = useElements();
@@ -65,6 +69,8 @@ const PaymentForm = ({
         description: error.message,
         variant: "destructive",
       });
+      // Fallback to free plan path
+      onFail();
     } finally {
       setLoading(false);
     }
@@ -76,6 +82,11 @@ const PaymentForm = ({
       <Button type="submit" disabled={!stripe || loading} className="w-full">
         {loading ? "Processing..." : `Continue to Create Account`}
       </Button>
+      <div className="text-center">
+        <button type="button" className="text-sm text-muted-foreground underline" onClick={onSkipToFree}>
+          Skip payment and use Free plan
+        </button>
+      </div>
     </form>
   );
 };
@@ -88,16 +99,54 @@ export default function Register() {
     plan: "starter"
   });
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<'payment' | 'account'>('payment');
+  // Check URL immediately to prevent flicker
+  const urlParams = new URLSearchParams(window.location.search);
+  const redirectStatus = urlParams.get("redirect_status");
+  const returnedSetupIntentId = urlParams.get("setup_intent");
+  const isReturningFromStripe = redirectStatus === 'succeeded' && returnedSetupIntentId;
+  
+  const [step, setStep] = useState<'payment' | 'account' | 'completing'>(
+    isReturningFromStripe ? 'completing' : 'account'
+  );
   const [clientSecret, setClientSecret] = useState("");
   const [setupIntentId, setSetupIntentId] = useState("");
-  const { register } = useAuth();
+  const { register, refreshUserData } = useAuth();
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const PENDING_KEY = 'cp_pending_registration';
+
+  const completeRegistration = async (dataOverride?: typeof formData) => {
+    const data = dataOverride || formData;
+    await register(data.email, data.password, data.username, data.plan);
+
+    if (data.plan === 'pro' && setupIntentId) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const periodParam = urlParams.get("period");
+      const planTypeForStripe = periodParam === 'yearly' ? 'pro_yearly' : 'pro_monthly';
+      const subscriptionResponse = await fetch("/api/create-subscription", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${await auth.currentUser?.getIdToken()}`,
+        },
+        body: JSON.stringify({ 
+          planType: planTypeForStripe,
+          setupIntentId: setupIntentId 
+        }),
+      });
+      if (!subscriptionResponse.ok) {
+        const errorData = await subscriptionResponse.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to create subscription");
+      }
+      
+      // Refresh user data to get updated plan
+      await refreshUserData();
+    }
+  };
 
   // Extract plan from URL query parameters
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
     const planParam = urlParams.get("plan");
     const periodParam = urlParams.get("period");
     const stepParam = urlParams.get("step");
@@ -110,20 +159,76 @@ export default function Register() {
         setFormData(prev => ({ ...prev, plan: "pro" })); // Just 'pro', not 'pro_monthly'/'pro_yearly'
       }
     }
-    if (stepParam === 'account') {
+    if (periodParam === 'yearly') {
+      setBillingPeriod('yearly');
+    }
+    // Handle Stripe redirect results
+    if (redirectStatus === 'succeeded' && returnedSetupIntentId) {
+      setSetupIntentId(returnedSetupIntentId);
+      // Clean URL noise
+      const u = new URL(window.location.href);
+      u.searchParams.delete('redirect_status');
+      u.searchParams.delete('setup_intent');
+      u.searchParams.delete('setup_intent_client_secret');
+      u.searchParams.set('step', 'completing');
+      window.history.replaceState({}, '', u.toString());
+      
+      // Restore pending form data and auto-complete registration
+      const pending = localStorage.getItem(PENDING_KEY);
+      if (pending) {
+        try {
+          const parsed = JSON.parse(pending);
+          setFormData(parsed);
+          setLoading(true);
+          (async () => {
+            try {
+              await completeRegistration(parsed);
+              await refreshUserData(); // Refresh to get updated plan
+              toast({ title: 'Account created!', description: 'Welcome to CryptoPilot Pro.' });
+              localStorage.removeItem(PENDING_KEY);
+              setLocation('/dashboard');
+            } catch (err: any) {
+              toast({ title: 'Registration failed', description: err.message || 'Please try again.', variant: 'destructive' });
+              setStep('account');
+              setLoading(false);
+            }
+          })();
+        } catch {
+          setStep('account');
+          toast({ title: 'Error', description: 'Failed to restore registration data.', variant: 'destructive' });
+        }
+      } else {
+        setStep('account');
+        toast({ title: 'Payment method saved', description: 'Finish creating your account.' });
+      }
+    } else if (redirectStatus && redirectStatus !== 'succeeded') {
+      // Clear payment data on failed payment
+      setSetupIntentId('');
+      setClientSecret('');
+      // Fallback to free on failed or incomplete states
+      setFormData(prev => ({ ...prev, plan: 'starter' }));
+      setStep('account');
+      const u = new URL(window.location.href);
+      u.searchParams.delete('redirect_status');
+      u.searchParams.delete('setup_intent');
+      u.searchParams.delete('setup_intent_client_secret');
+      u.searchParams.set('step', 'account');
+      u.searchParams.set('plan', 'starter');
+      window.history.replaceState({}, '', u.toString());
+      localStorage.removeItem(PENDING_KEY); // Clear cached registration data
+      toast({ title: 'Payment failed', description: 'Continuing with Free plan.', variant: 'destructive' });
+    } else if (stepParam === 'account') {
       setStep('account');
     }
   }, []);
 
-  // Create setup intent for payment
+  // Create setup intent for payment when step changes to payment
   useEffect(() => {
     if (step === 'payment' && formData.plan !== 'starter') {
       const createSetupIntent = async () => {
         try {
-          // Get billing period from URL params for Stripe
-          const urlParams = new URLSearchParams(window.location.search);
-          const periodParam = urlParams.get("period");
-          const planForStripe = periodParam === 'yearly' ? 'pro_yearly' : 'pro_monthly';
+          // Get billing period from current state
+          const planForStripe = billingPeriod === 'yearly' ? 'pro_yearly' : 'pro_monthly';
           
           console.log("Creating setup intent for plan:", planForStripe);
           
@@ -149,50 +254,45 @@ export default function Register() {
             description: error.message || "Failed to setup payment",
             variant: "destructive",
           });
+          // Fall back to account step if setup fails
+          setStep('account');
         }
       };
 
       createSetupIntent();
     }
-  }, [step, formData.plan]);
+  }, [step, formData.plan, billingPeriod]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      await register(formData.email, formData.password, formData.username, formData.plan);
-      
-      // If this is a Pro plan and we have a setup intent, create the subscription
-      if (formData.plan === 'pro' && setupIntentId) {
-        console.log("Creating subscription for Pro plan...");
-        
-        // Get the billing period from URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const periodParam = urlParams.get("period");
-        const planTypeForStripe = periodParam === 'yearly' ? 'pro_yearly' : 'pro_monthly';
-        
-        // Create the subscription
-        const subscriptionResponse = await fetch("/api/create-subscription", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${await auth.currentUser?.getIdToken()}`,
-          },
-          body: JSON.stringify({ 
-            planType: planTypeForStripe,
-            setupIntentId: setupIntentId 
-          }),
+      // Validate form first
+      if (!formData.username || !formData.email || !formData.password) {
+        toast({
+          title: "Missing information",
+          description: "Please fill in all fields",
+          variant: "destructive",
         });
-
-        if (!subscriptionResponse.ok) {
-          const errorData = await subscriptionResponse.json();
-          throw new Error(errorData.message || "Failed to create subscription");
-        }
-
-        const subscriptionData = await subscriptionResponse.json();
-        console.log("Subscription created:", subscriptionData);
+        setLoading(false);
+        return;
       }
+
+      // If Pro plan and payment hasn't been completed yet, go to payment first
+      if (formData.plan === 'pro' && !setupIntentId) {
+        // persist data to resume after Stripe redirect
+        localStorage.setItem(PENDING_KEY, JSON.stringify(formData));
+        setStep('payment');
+        setLoading(false);
+        return;
+      }
+
+      await completeRegistration();
+      localStorage.removeItem(PENDING_KEY);
+      
+      // Refresh user data to ensure plan is up-to-date
+      await refreshUserData();
       
       toast({
         title: "Account created!",
@@ -212,12 +312,30 @@ export default function Register() {
   };
 
   const planDetails = {
-    starter: { name: "Starter", price: "Free" },
-    pro: { name: "Pro", price: "$29/month" },
-    enterprise: { name: "Enterprise", price: "$99/month" }
-  };
+    starter: { name: "Free Tier", price: "Free" },
+    pro: { name: "CryptoPilot Pro", price: billingPeriod === 'yearly' ? "$499/year" : "$69/month" },
+  } as const;
 
   const currentPlan = planDetails[formData.plan as keyof typeof planDetails] || planDetails.starter;
+
+  // Show completing screen when processing after payment
+  if (step === 'completing') {
+    return (
+      <div className="min-h-screen flex items-center justify-center py-12">
+        <div className="max-w-md w-full space-y-8 p-8">
+          <Card className="bg-surface/50 backdrop-blur-xl border-slate-700">
+            <CardContent className="p-12 text-center">
+              <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+              <h3 className="text-xl font-semibold mb-2">Creating Your Account</h3>
+              <p className="text-muted-foreground">
+                Payment successful! Setting up your CryptoPilot Pro account...
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   if (step === 'payment' && formData.plan !== 'starter') {
     return (
@@ -243,6 +361,15 @@ export default function Register() {
                     planType={formData.plan} 
                     setupIntentId={setupIntentId}
                     onSuccess={() => setStep('account')}
+                    onFail={() => {
+                      // fallback: switch to free plan and continue
+                      setFormData(prev => ({ ...prev, plan: 'starter' }));
+                      setStep('account');
+                    }}
+                    onSkipToFree={() => {
+                      setFormData(prev => ({ ...prev, plan: 'starter' }));
+                      setStep('account');
+                    }}
                   />
                 </Elements>
               )}
@@ -265,6 +392,71 @@ export default function Register() {
           </CardHeader>
           
           <CardContent>
+            {/* Plan Selection */}
+            <div className="mb-6">
+              <div className="flex justify-center mb-3">
+                <div className="inline-flex items-center bg-white/10 rounded-full shadow px-2 py-1">
+                  <button
+                    className={`px-4 py-2 rounded-full font-semibold transition-colors ${billingPeriod === 'monthly' ? 'bg-orange-500 text-white' : 'text-slate-700 dark:text-slate-200'}`}
+                    onClick={() => {
+                      setBillingPeriod('monthly');
+                      const u = new URL(window.location.href);
+                      u.searchParams.set('period', 'monthly');
+                      window.history.replaceState({}, '', u.toString());
+                    }}
+                  >
+                    Monthly
+                  </button>
+                  <button
+                    className={`px-4 py-2 rounded-full font-semibold transition-colors ${billingPeriod === 'yearly' ? 'bg-orange-500 text-white' : 'text-slate-700 dark:text-slate-200'}`}
+                    onClick={() => {
+                      setBillingPeriod('yearly');
+                      const u = new URL(window.location.href);
+                      u.searchParams.set('period', 'yearly');
+                      window.history.replaceState({}, '', u.toString());
+                    }}
+                  >
+                    Yearly
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, plan: 'starter' }));
+                    setStep('account');
+                    const u = new URL(window.location.href);
+                    u.searchParams.set('plan', 'starter');
+                    window.history.replaceState({}, '', u.toString());
+                  }}
+                  className={`p-4 rounded-lg border text-left ${formData.plan === 'starter' ? 'border-primary bg-primary/5' : 'border-slate-300 dark:border-slate-600'}`}
+                >
+                  <div className="font-semibold">Free Tier</div>
+                  <div className="text-sm text-muted-foreground">Market Feed, 1 signal/day, 1 portfolio scan, 1 bot</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, plan: 'pro' }));
+                    // Clear any previous payment data when switching to Pro
+                    setSetupIntentId('');
+                    setClientSecret('');
+                    const u = new URL(window.location.href);
+                    u.searchParams.set('plan', 'pro');
+                    window.history.replaceState({}, '', u.toString());
+                  }}
+                  className={`p-4 rounded-lg border text-left ${formData.plan === 'pro' ? 'border-primary bg-primary/5' : 'border-slate-300 dark:border-slate-600'}`}
+                >
+                  <div className="font-semibold">CryptoPilot Pro</div>
+                  <div className="text-sm text-muted-foreground">Full market feed, unlimited signals, weekly reports, unlimited bots</div>
+                  <div className="text-sm mt-1">{billingPeriod === 'yearly' ? '$499/year' : '$69/month'}</div>
+                </button>
+              </div>
+            </div>
+
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <Label htmlFor="username" className="text-sm font-medium text-muted-foreground">
@@ -309,7 +501,9 @@ export default function Register() {
               </div>
               
               <Button type="submit" disabled={loading} className="w-full py-3 font-semibold">
-                {loading ? "Creating Account..." : "Create Account"}
+                {loading
+                  ? (formData.plan === 'pro' && !setupIntentId ? "Continuing..." : "Creating Account...")
+                  : (formData.plan === 'pro' && !setupIntentId ? "Next" : "Create Account")}
               </Button>
             </form>
           </CardContent>

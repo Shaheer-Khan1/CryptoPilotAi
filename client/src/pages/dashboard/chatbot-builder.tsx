@@ -111,13 +111,31 @@ export default function ChatbotBuilder() {
 
   const generateBotResponse = async (userMessage: any, botKnowledge: any) => {
     try {
+      // Debug: Log the knowledge being used
+      console.log('🤖 Bot Knowledge Length:', botKnowledge ? botKnowledge.length : 0);
+      console.log('🤖 User Message:', userMessage);
+      console.log('🤖 Knowledge Preview:', botKnowledge ? botKnowledge.substring(0, 300) + '...' : 'No knowledge available');
+      
+      // Check if we have knowledge
+      if (!botKnowledge || botKnowledge.trim().length === 0) {
+        return "I don't have any specific knowledge base loaded yet. Please make sure a document was properly uploaded and processed when creating this bot.";
+      }
+      
       const prompt = `
-        You are an AI chatbot with the following knowledge base:
+        You are an AI chatbot trained EXCLUSIVELY on the following content. You must ONLY use this knowledge to answer questions:
+
+        KNOWLEDGE BASE:
         ${botKnowledge}
         
-        User question: ${userMessage}
+        USER QUESTION: ${userMessage}
         
-        Please provide a helpful, accurate response based on your knowledge. If the question is outside your knowledge base, politely explain that you can only answer questions related to your trained content.
+        STRICT INSTRUCTIONS:
+        - ONLY answer based on the knowledge base provided above
+        - If the question is about your training, explain that you were trained on the specific document/content provided
+        - If someone asks "what are you trained on", refer to the content in your knowledge base
+        - If the answer isn't in your knowledge base, say: "I can only answer questions about the specific content I was trained on. Please ask about [mention the main topic from your knowledge]"
+        - Always reference specific information from your knowledge base when possible
+        - Be conversational but stick strictly to your knowledge base
       `;
 
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -294,6 +312,13 @@ export default function ChatbotBuilder() {
   };
 
   const handleTestChat = (bot: any) => {
+    console.log('🧪 Testing bot with knowledge:', {
+      botName: bot.name,
+      hasKnowledge: !!bot.knowledge,
+      knowledgeLength: bot.knowledge ? bot.knowledge.length : 0,
+      knowledgePreview: bot.knowledge ? bot.knowledge.substring(0, 200) + '...' : 'No knowledge'
+    });
+    
     setChatMode(bot);
     setChatMessages([
       { role: "bot", content: `Hello! I'm ${bot.name}. I can help answer questions about ${bot.description || "the topics I was trained on"}. What would you like to know?` }

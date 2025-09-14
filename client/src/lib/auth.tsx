@@ -16,6 +16,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, username: string, plan: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUserData: () => Promise<void>;
   loading: boolean;
 }
 
@@ -49,6 +50,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       
       if (response.ok) {
         const user = await response.json();
+        console.log("User data loaded:", { username: user.username, plan: user.plan, email: user.email });
         setUserData(user);
       } else if (response.status === 404) {
         // User not found in database - this should only happen for new registrations, not logins
@@ -63,9 +65,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const baseUsername = email?.split('@')[0] || `user_${firebaseUser.uid.slice(0, 8)}`;
         
         // Create user in our database with default starter plan
-        // Add random suffix to avoid username conflicts
-        const randomSuffix = Math.random().toString(36).substring(2, 8);
-        const username = `${baseUsername}_${randomSuffix}`;
+        // Use a cleaner username without random suffix
+        const username = baseUsername;
         
         try {
           await apiRequest("POST", "/api/users", {
@@ -99,6 +100,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     } catch (error) {
       console.error("Error fetching user data:", error);
+    }
+  }
+
+  async function refreshUserData() {
+    if (currentUser) {
+      await fetchUserData(currentUser);
     }
   }
 
@@ -148,6 +155,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     login,
     register,
     logout,
+    refreshUserData,
     loading,
   };
 

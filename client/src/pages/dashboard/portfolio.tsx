@@ -266,6 +266,7 @@ const Portfolio = () => {
 
   // Add a new loading state for the entire portfolio
   const [isPortfolioLoading, setIsPortfolioLoading] = useState(false);
+  const [weeklyReports, setWeeklyReports] = useState([]);
 
   // Initialize Moralis
   const initializeMoralis = async () => {

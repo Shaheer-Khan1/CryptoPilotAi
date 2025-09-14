@@ -3,6 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertUserSchema } from "@shared/schema";
 import Stripe from "stripe";
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 // In-memory storage for tasks
 const tasks = new Map();
@@ -24,6 +27,66 @@ const STRIPE_PRICE_IDS = {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
+  // Get billing history
+  app.get("/api/billing-history", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const token = authHeader.replace("Bearer ", "");
+      let firebaseUid;
+      try {
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        firebaseUid = payload.user_id || payload.sub;
+      } catch {
+        firebaseUid = token;
+      }
+      
+      if (!firebaseUid) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      const user = await storage.getUserByFirebaseUid(firebaseUid);
+      if (!user || !user.stripeCustomerId) {
+        return res.json({ invoices: [] });
+      }
+
+      // Fetch invoices from Stripe
+      if (!stripe) {
+        return res.status(500).json({ message: "Stripe not configured" });
+      }
+      
+      const invoices = await stripe.invoices.list({
+        customer: user.stripeCustomerId,
+        limit: 10,
+        expand: ['data.payment_intent']
+      });
+
+      const billingHistory = invoices.data.map(invoice => ({
+        id: invoice.id,
+        number: invoice.number,
+        date: new Date(invoice.created * 1000).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        }),
+        amount: `$${(invoice.amount_paid / 100).toFixed(2)}`,
+        status: invoice.status === 'paid' ? 'Paid' : 
+                invoice.status === 'open' ? 'Pending' : 
+                invoice.status === 'void' ? 'Void' : 'Draft',
+        description: `Monthly subscription • ${invoice.number || invoice.id}`,
+        downloadUrl: invoice.invoice_pdf
+      }));
+
+      res.json({ invoices: billingHistory });
+    } catch (error: any) {
+      console.error("Error fetching billing history:", error);
+      res.status(500).json({ message: "Failed to fetch billing history" });
+    }
+  });
+
   // Get current user
   app.get("/api/user", async (req, res) => {
     const authHeader = req.headers.authorization;
@@ -141,15 +204,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("Creating Stripe subscription with price ID:", priceId);
 
-      // Get the setup intent to verify payment method
-      const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
-      if (!setupIntent.payment_method) {
-        throw new Error("No payment method attached to setup intent");
+      let customerId: string;
+      let paymentMethodId: string | undefined;
+
+      if (setupIntentId) {
+        // Get the setup intent to verify payment method
+        const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
+        if (!setupIntent.payment_method) {
+          throw new Error("No payment method attached to setup intent");
+        }
+        customerId = setupIntent.customer as string;
+        paymentMethodId = setupIntent.payment_method as string;
+      } else {
+        // For upgrades without setup intent, redirect to checkout session
+        const checkoutSession = await stripe.checkout.sessions.create({
+          payment_method_types: ['card'],
+          line_items: [
+            {
+              price: priceId,
+              quantity: 1,
+            },
+          ],
+          mode: 'subscription',
+          success_url: `${req.headers.origin}/dashboard/billing?upgrade=success`,
+          cancel_url: `${req.headers.origin}/dashboard/billing?upgrade=cancelled`,
+          customer_email: req.body.customerEmail,
+        });
+
+        return res.json({ 
+          checkoutUrl: checkoutSession.url,
+          message: "Redirect to checkout for payment"
+        });
       }
 
       // Create the subscription
       const subscription = await stripe.subscriptions.create({
-        customer: setupIntent.customer as string,
+        customer: customerId,
         items: [{ price: priceId }],
         payment_behavior: 'default_incomplete',
         payment_settings: { save_default_payment_method: 'on_subscription' },
@@ -178,7 +268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Update user's plan to 'pro' and save Stripe info
               const updatedUser = await storage.updateUserStripeInfo(
                 user.id, 
-                setupIntent.customer as string, 
+                customerId, 
                 subscription.id
               );
               // Also update the plan to 'pro'
@@ -340,6 +430,164 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     res.json(task);
+  });
+
+  // Configure multer for video uploads
+  const multerStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uploadDir = path.join(process.cwd(), 'uploads', 'videos');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      const taskId = req.body.task_id;
+      const timestamp = Date.now();
+      cb(null, `${taskId}_${timestamp}.mp4`);
+    }
+  });
+
+  const upload = multer({ 
+    storage: multerStorage,
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype === 'video/mp4') {
+        cb(null, true);
+      } else {
+        cb(new Error('Only MP4 files are allowed'));
+      }
+    }
+  });
+
+  // Video callback endpoint
+  app.post('/api/video-callback', upload.single('video'), async (req, res) => {
+    try {
+      console.log('Video callback received:', {
+        task_id: req.body.task_id,
+        status: req.body.status,
+        duration: req.body.duration,
+        filename: req.body.filename,
+        uploadedFile: req.file?.filename
+      });
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No video file received' });
+      }
+
+      const { task_id, status, duration, message } = req.body;
+
+      // Store video metadata
+      const videoData = {
+        taskId: task_id,
+        status,
+        duration: parseFloat(duration),
+        message,
+        filename: req.file.filename,
+        filepath: req.file.path,
+        receivedAt: new Date().toISOString(),
+        downloadUrl: `/api/video/${task_id}`
+      };
+
+      // Save metadata to JSON file
+      const metadataDir = path.join(process.cwd(), 'uploads', 'metadata');
+      if (!fs.existsSync(metadataDir)) {
+        fs.mkdirSync(metadataDir, { recursive: true });
+      }
+      
+      const metadataFile = path.join(metadataDir, `${task_id}.json`);
+      fs.writeFileSync(metadataFile, JSON.stringify(videoData, null, 2));
+
+      console.log(`Video ${task_id} saved successfully:`, req.file.filename);
+
+      res.status(200).json({ 
+        success: true, 
+        message: 'Video received and stored successfully',
+        downloadUrl: `/api/video/${task_id}`
+      });
+
+    } catch (error) {
+      console.error('Error handling video callback:', error);
+      res.status(500).json({ error: 'Failed to process video callback' });
+    }
+  });
+
+  // Serve videos
+  app.get('/api/video/:taskId', (req, res) => {
+    try {
+      const { taskId } = req.params;
+      const metadataFile = path.join(process.cwd(), 'uploads', 'metadata', `${taskId}.json`);
+      
+      if (!fs.existsSync(metadataFile)) {
+        return res.status(404).json({ error: 'Video not found' });
+      }
+
+      const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
+      const videoPath = metadata.filepath;
+
+      if (!fs.existsSync(videoPath)) {
+        return res.status(404).json({ error: 'Video file not found' });
+      }
+
+      // Set proper headers for video streaming
+      const stat = fs.statSync(videoPath);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+
+      if (range) {
+        // Handle range requests for video streaming
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunksize = (end - start) + 1;
+        const file = fs.createReadStream(videoPath, { start, end });
+        const head = {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunksize,
+          'Content-Type': 'video/mp4',
+        };
+        res.writeHead(206, head);
+        file.pipe(res);
+      } else {
+        // Send entire file
+        const head = {
+          'Content-Length': fileSize,
+          'Content-Type': 'video/mp4',
+          'Content-Disposition': `attachment; filename="generated_video_${taskId}.mp4"`
+        };
+        res.writeHead(200, head);
+        fs.createReadStream(videoPath).pipe(res);
+      }
+
+    } catch (error) {
+      console.error('Error serving video:', error);
+      res.status(500).json({ error: 'Failed to serve video' });
+    }
+  });
+
+  // Check video status
+  app.get('/api/video-status/:taskId', (req, res) => {
+    try {
+      const { taskId } = req.params;
+      const metadataFile = path.join(process.cwd(), 'uploads', 'metadata', `${taskId}.json`);
+      
+      if (!fs.existsSync(metadataFile)) {
+        return res.status(404).json({ error: 'Video not found' });
+      }
+
+      const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
+      res.json({
+        task_id: metadata.taskId,
+        status: metadata.status,
+        duration: metadata.duration,
+        downloadUrl: metadata.downloadUrl,
+        receivedAt: metadata.receivedAt
+      });
+
+    } catch (error) {
+      console.error('Error checking video status:', error);
+      res.status(500).json({ error: 'Failed to check video status' });
+    }
   });
 
   const httpServer = createServer(app);

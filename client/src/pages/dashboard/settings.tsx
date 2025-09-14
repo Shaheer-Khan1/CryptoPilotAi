@@ -4,34 +4,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { Trash2, Mail } from "lucide-react";
 
 export default function Settings() {
   const { userData, logout } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
 
-  const [profileData, setProfileData] = useState({
-    username: userData?.username || "",
-    email: userData?.email || "",
-  });
+  const [email, setEmail] = useState(userData?.email || "");
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
-  const [notifications, setNotifications] = useState({
-    emailAlerts: true,
-    pushNotifications: true,
-    tradingSignals: true,
-    priceAlerts: true,
-    marketNews: false,
-  });
-
-  const [security, setSecurity] = useState({
-    twoFactorAuth: false,
-    loginAlerts: true,
-  });
-
-  const handleProfileUpdate = async (e: React.FormEvent) => {
+  const handleEmailUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     
@@ -39,18 +23,33 @@ export default function Settings() {
     setTimeout(() => {
       setLoading(false);
       toast({
-        title: "Profile Updated",
-        description: "Your profile has been updated successfully.",
+        title: "Email Updated",
+        description: "Your email has been updated successfully.",
       });
     }, 1000);
   };
 
-  const handleLogout = async () => {
-    await logout();
-    toast({
-      title: "Logged out",
-      description: "You have been logged out successfully.",
-    });
+  const handleDeleteAccount = async () => {
+    if (deleteConfirm !== "DELETE") {
+      toast({
+        title: "Invalid Confirmation",
+        description: "Please type 'DELETE' to confirm account deletion.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+    
+    // Mock deletion - in real app, this would call an API
+    setTimeout(() => {
+      setLoading(false);
+      toast({
+        title: "Account Deleted",
+        description: "Your account has been permanently deleted.",
+      });
+      logout();
+    }, 1000);
   };
 
   return (
@@ -61,180 +60,67 @@ export default function Settings() {
       </div>
 
       <div className="space-y-8">
-        {/* Profile Settings */}
+        {/* Email Settings */}
         <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">
           <CardHeader>
-            <CardTitle>Profile Information</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" />
+              Email Address
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleProfileUpdate} className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="username">Username</Label>
-                  <Input
-                    id="username"
-                    value={profileData.username}
-                    onChange={(e) => setProfileData(prev => ({ ...prev, username: e.target.value }))}
-                    className="bg-white dark:bg-slate-800 text-black dark:text-white border-slate-300 dark:border-slate-600"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={profileData.email}
-                    onChange={(e) => setProfileData(prev => ({ ...prev, email: e.target.value }))}
-                    className="bg-white dark:bg-slate-800 text-black dark:text-white border-slate-300 dark:border-slate-600"
-                  />
-                </div>
+            <form onSubmit={handleEmailUpdate} className="space-y-4">
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="bg-white dark:bg-slate-800 text-black dark:text-white border-slate-300 dark:border-slate-600"
+                  placeholder="Enter your email address"
+                />
               </div>
               <Button type="submit" disabled={loading}>
-                {loading ? "Updating..." : "Update Profile"}
+                {loading ? "Updating..." : "Update Email"}
               </Button>
             </form>
           </CardContent>
         </Card>
 
-        {/* Notification Settings */}
+        {/* Delete Account */}
         <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">
           <CardHeader>
-            <CardTitle>Notifications</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="emailAlerts">Email Alerts</Label>
-                <p className="text-sm text-muted-foreground">Receive important updates via email</p>
-              </div>
-              <Switch
-                id="emailAlerts"
-                checked={notifications.emailAlerts}
-                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, emailAlerts: checked }))}
-              />
-            </div>
-            
-            <Separator />
-            
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="pushNotifications">Push Notifications</Label>
-                <p className="text-sm text-muted-foreground">Get notified about price changes and signals</p>
-              </div>
-              <Switch
-                id="pushNotifications"
-                checked={notifications.pushNotifications}
-                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, pushNotifications: checked }))}
-              />
-            </div>
-            
-            <Separator />
-            
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="tradingSignals">Trading Signals</Label>
-                <p className="text-sm text-muted-foreground">AI-powered trading recommendations</p>
-              </div>
-              <Switch
-                id="tradingSignals"
-                checked={notifications.tradingSignals}
-                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, tradingSignals: checked }))}
-              />
-            </div>
-            
-            <Separator />
-            
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="priceAlerts">Price Alerts</Label>
-                <p className="text-sm text-muted-foreground">Custom price threshold notifications</p>
-              </div>
-              <Switch
-                id="priceAlerts"
-                checked={notifications.priceAlerts}
-                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, priceAlerts: checked }))}
-              />
-            </div>
-            
-            <Separator />
-            
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="marketNews">Market News</Label>
-                <p className="text-sm text-muted-foreground">Latest cryptocurrency news and updates</p>
-              </div>
-              <Switch
-                id="marketNews"
-                checked={notifications.marketNews}
-                onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, marketNews: checked }))}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Security Settings */}
-        <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">
-          <CardHeader>
-            <CardTitle>Security</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="twoFactorAuth">Two-Factor Authentication</Label>
-                <p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p>
-              </div>
-              <Switch
-                id="twoFactorAuth"
-                checked={security.twoFactorAuth}
-                onCheckedChange={(checked) => setSecurity(prev => ({ ...prev, twoFactorAuth: checked }))}
-              />
-            </div>
-            
-            <Separator />
-            
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="loginAlerts">Login Alerts</Label>
-                <p className="text-sm text-muted-foreground">Get notified of new login attempts</p>
-              </div>
-              <Switch
-                id="loginAlerts"
-                checked={security.loginAlerts}
-                onCheckedChange={(checked) => setSecurity(prev => ({ ...prev, loginAlerts: checked }))}
-              />
-            </div>
-            
-            <Separator />
-            
-            <div>
-              <Label>Change Password</Label>
-              <p className="text-sm text-muted-foreground mb-4">Update your password to keep your account secure</p>
-              <Button variant="outline">Change Password</Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Account Actions */}
-        <Card className="bg-white/90 dark:bg-surface/50 backdrop-blur-xl border-slate-200 dark:border-slate-700">
-          <CardHeader>
-            <CardTitle className="text-red-500">Danger Zone</CardTitle>
+            <CardTitle className="text-red-500 flex items-center gap-2">
+              <Trash2 className="h-5 w-5" />
+              Delete Account
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <Label>Logout</Label>
-              <p className="text-sm text-muted-foreground mb-4">Sign out of your account</p>
-              <Button variant="outline" onClick={handleLogout}>
-                Logout
-              </Button>
+            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <p className="text-sm text-red-800 dark:text-red-200">
+                <strong>Warning:</strong> This action cannot be undone. This will permanently delete your account and remove all data from our servers.
+              </p>
             </div>
             
-            <Separator />
-            
             <div>
-              <Label className="text-red-500">Delete Account</Label>
-              <p className="text-sm text-muted-foreground mb-4">Permanently delete your account and all data</p>
-              <Button variant="destructive">Delete Account</Button>
+              <Label htmlFor="deleteConfirm">Type "DELETE" to confirm</Label>
+              <Input
+                id="deleteConfirm"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                className="bg-white dark:bg-slate-800 text-black dark:text-white border-slate-300 dark:border-slate-600"
+                placeholder="Type DELETE to confirm"
+              />
             </div>
+            
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteAccount}
+              disabled={loading || deleteConfirm !== "DELETE"}
+            >
+              {loading ? "Deleting..." : "Delete Account"}
+            </Button>
           </CardContent>
         </Card>
       </div>
